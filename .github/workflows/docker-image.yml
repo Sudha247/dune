@@ -38,7 +38,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
       - name: Download release assets (current ref)
-        if: ${{ github.ref_name != '' }}
+        if: ${{ github.ref_type == 'tag' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -48,7 +48,7 @@ jobs:
           --dir docker-context
 
       - name: Download release assets (latest if ref is not present)
-        if: ${{ github.ref_name == '' }}
+        if: ${{ github.ref_type == 'branch' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
