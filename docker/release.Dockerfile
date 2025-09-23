@@ -6,7 +6,6 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y adduser build-ess
 RUN addgroup --gid 1000 dune && adduser --uid 1000 --ingroup dune dune
 
 USER dune:dune
-WORKDIR /home/dune
 
 # Use release assets from Docker context
 RUN tar -xf dune*.tbz && mv dune-*/ dune
