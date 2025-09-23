@@ -19,7 +19,7 @@ RUN cd dune && ./configure --prefix=/home/dune/install && make bootstrap && make
 
 FROM ${BASE_IMAGE} AS run
 
-RUN apt-get update && apt-get upgrade -y && apt-get install -y adduser curl ocaml git && rm -rf /var/lib/{apt,dpkg,cache,log}/
+RUN apt-get update && apt-get upgrade -y && apt-get install -y adduser curl ocaml git sudo && rm -rf /var/lib/{apt,dpkg,cache,log}/
 RUN addgroup --gid 1000 dune && adduser --uid 1000 --ingroup dune dune
 
 COPY --from=build /home/dune/install/bin/dune /usr/local/bin
