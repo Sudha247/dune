@@ -72,6 +72,7 @@ jobs:
            gh release download "${{ github.event.inputs.tag }}" \
            --pattern "*.tbz" \
            --dir docker-context
+           mv docker-context/dune*.tbz docker-context/dune.tbz
            ls docker-context
         
       - name: Set up Docker Buildx
@@ -81,7 +82,7 @@ jobs:
         id: push
         uses: docker/build-push-action@v6
         with:
-          context: .
+          build-contexts: TARBALL=./docker-context
           file: ./docker/release.Dockerfile
           push: true
         #   tags: ${{ secrets.DOCKERHUB_USERNAME }}/dune:${{ github.ref_name }}
