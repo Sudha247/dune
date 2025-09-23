@@ -7,7 +7,8 @@ RUN addgroup --gid 1000 dune && adduser --uid 1000 --ingroup dune dune
 
 USER dune:dune
 
-COPY --from=tarball /dune.tbz /dune.tbz
+COPY --from=tarball /dune.tbz /home/dune/dune.tbz
+WORKDIR /home/dune
 RUN pwd
 RUN ls
 # Use release assets from Docker context
