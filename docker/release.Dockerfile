@@ -7,6 +7,8 @@ RUN addgroup --gid 1000 dune && adduser --uid 1000 --ingroup dune dune
 
 USER dune:dune
 
+RUN pwd
+RUN ls
 # Use release assets from Docker context
 RUN tar -xf dune*.tbz && mv dune-*/ dune
 
