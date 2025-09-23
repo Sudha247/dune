@@ -82,7 +82,7 @@ jobs:
         id: push
         uses: docker/build-push-action@v6
         with:
-          build-contexts: TARBALL=./docker-context
+          build-contexts: tarball=./docker-context
           file: ./docker/release.Dockerfile
           push: true
         #   tags: ${{ secrets.DOCKERHUB_USERNAME }}/dune:${{ github.ref_name }}
