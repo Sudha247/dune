@@ -71,7 +71,8 @@ jobs:
            mkdir -p docker-context
            gh release download "${{ github.event.inputs.tag }}" \
            --pattern "*.tbz" \
-           --dir docker-context 
+           --dir docker-context
+           ls docker-context
         
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
