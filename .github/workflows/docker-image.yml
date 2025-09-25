@@ -44,36 +44,36 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
 
-      # - name: Download release assets (current ref)
-      #   if: ${{ github.ref_type == 'tag' }}
-      #   env:
-      #     GH_TOKEN: ${{ github.token }}
-      #   run: |
-      #     mkdir -p docker-context
-      #     gh release download "${{ github.ref_name }}" \
-      #     --pattern "*.tbz" \
-      #     --dir docker-context
-
-      # - name: Download release assets (latest if ref is not present)
-      #   if: ${{ github.ref_type == 'branch'}}
-      #   env:
-      #     GH_TOKEN: ${{ github.token }}
-      #   run: |
-      #     mkdir -p docker-context
-      #     gh release download  \
-      #     --pattern "*.tbz" \
-      #     --dir docker-context        
-
-      - name: Download release assets
+      - name: Download release assets (current ref)
+        if: ${{ github.ref_type == 'tag' }}
         env:
-           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-           mkdir -p docker-context
-           gh release download "${{ github.event.inputs.tag }}" \
-           --pattern "*.tbz" \
-           --dir docker-context
-           mv docker-context/dune*.tbz docker-context/dune.tbz
-           ls docker-context
+          mkdir -p docker-context
+          gh release download "${{ github.ref_name }}" \
+          --pattern "*.tbz" \
+          --dir docker-context
+
+      - name: Download release assets (latest if ref is not present)
+        if: ${{ github.ref_type == 'branch'}}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p docker-context
+          gh release download "${{ github.event.inputs.tag }}" \
+          --pattern "*.tbz" \
+          --dir docker-context        
+
+      # - name: Download release assets
+      #   env:
+      #      GH_TOKEN: ${{ github.token }}
+      #   run: |
+      #      mkdir -p docker-context
+      #      gh release download "${{ github.event.inputs.tag }}" \
+      #      --pattern "*.tbz" \
+      #      --dir docker-context
+      #      mv docker-context/dune*.tbz docker-context/dune.tbz
+      #      ls docker-context
         
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
