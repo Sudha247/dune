@@ -9,10 +9,9 @@ USER dune:dune
 
 COPY --from=tarball /dune.tbz /home/dune/dune.tbz
 WORKDIR /home/dune
-RUN pwd
-RUN ls
+
 # Use release assets from Docker context
-RUN tar -xf dune*.tbz
+RUN tar -xf dune*.tbz && mv dune-*/ dune
 
 # Build and install dune
 RUN cd dune && ./configure --prefix=/home/dune/install && make bootstrap && make release && make install
