@@ -12,7 +12,7 @@ WORKDIR /home/dune
 RUN pwd
 RUN ls
 # Use release assets from Docker context
-RUN tar -xf dune*.tbz && mv dune-*/ dune
+RUN tar -xf dune*.tbz
 
 # Build and install dune
 RUN cd dune && ./configure --prefix=/home/dune/install && make bootstrap && make release && make install
