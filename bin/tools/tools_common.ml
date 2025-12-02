@@ -125,6 +125,28 @@ let install_command dev_tool =
   Cmd.v info term
 ;;
 
+let dev_tool_conv =
+  let parse s = Ok (Pkg_dev_tool.of_exe_name s) in
+  let print fmt t = Format.fprintf fmt "%s" (Pkg_dev_tool.exe_name t) in
+  Cmdliner.Arg.conv (parse, print)
+;;
+
+let install_multiple_command =
+  let tools_arg =
+    let doc = "List of dev tools to install." in
+    Cmdliner.Arg.(non_empty & pos_all dev_tool_conv [] & info [] ~docv:"TOOL" ~doc)
+  in
+  let term =
+    let+ builder = Common.Builder.term
+    and+ tools = tools_arg in
+    let common, config = Common.init builder in
+    List.iter tools ~f:(fun dev_tool ->
+      lock_and_build_dev_tool ~common ~config builder dev_tool)
+  in
+  let info = Cmd.info "install" ~doc:"Install multiple dev tools in a single command." in
+  Cmd.v info term
+;;
+
 let exec_command dev_tool =
   let exe_name = Pkg_dev_tool.exe_name dev_tool in
   let term =

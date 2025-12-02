@@ -1460,7 +1460,9 @@ end = struct
 
   let resolve_impl { Input.db; pkg_digest; universe = package_universe } =
     match Pkg_digest.Map.find db.pkg_digest_table pkg_digest with
-    | None -> Memo.return None
+    | None ->
+      Printf.printf "I didn't find the package";
+      Memo.return None
     | Some
         { pkg =
             { Lock_dir.Pkg.build_command
@@ -1621,7 +1623,7 @@ end = struct
       | None ->
         User_error.raise
           ~loc
-          [ Pp.textf "Unknown package %S" (Package.Name.to_string pkg_digest.name) ]
+          [ Pp.textf "Unknown package this %S" (Package.Name.to_string pkg_digest.name) ]
   ;;
 end
 

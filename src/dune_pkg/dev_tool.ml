@@ -99,6 +99,19 @@ let exe_name = function
   | Ocaml_index -> "ocaml-index"
 ;;
 
+let of_exe_name = function
+  | "ocamlformat" -> Ocamlformat
+  | "odoc" -> Odoc
+  | "ocamllsp" -> Ocamllsp
+  | "utop" -> Utop
+  | "ocamlearlybird" -> Ocamlearlybird
+  | "odig" -> Odig
+  | "opam-publish" -> Opam_publish
+  | "dune-release" -> Dune_release
+  | "ocaml-index" -> Ocaml_index
+  | other -> User_error.raise [ Pp.textf "No such dev tool: %s" other ]
+;;
+
 let exe_path_components_within_package t = [ "bin"; exe_name t ]
 
 let needs_to_build_with_same_compiler_as_project = function

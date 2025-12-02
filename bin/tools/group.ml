@@ -19,15 +19,15 @@ module Exec = struct
          ~f:Tools_common.exec_command)
   ;;
 end
-
-module Install = struct
+(*
+   module Install = struct
   let doc = "Command group for installing wrapped tools."
   let info = Cmd.info ~doc "install"
 
-  let group =
-    Cmd.group info (List.map Dune_pkg.Dev_tool.all ~f:Tools_common.install_command)
+  let _group =
+    Cmd.group info ((List.map Dune_pkg.Dev_tool.all ~f:Tools_common.install_command))
   ;;
-end
+end *)
 
 module Which = struct
   let doc = "Command group for printing the path to wrapped tools."
@@ -42,5 +42,11 @@ let doc = "Command group for wrapped tools."
 let info = Cmd.info ~doc "tools"
 
 let group =
-  Cmd.group info [ Exec.group; Install.group; Which.group; Tools_common.env_command ]
+  Cmd.group
+    info
+    [ Exec.group
+    ; Which.group
+    ; Tools_common.env_command
+    ; Tools_common.install_multiple_command
+    ]
 ;;
