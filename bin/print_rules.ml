@@ -288,8 +288,8 @@ let term =
   let out = Option.map ~f:Path.of_string out in
   Scheduler_setup.go_with_rpc_server ~common ~config (fun () ->
     let open Fiber.O in
-    let* setup = Import.Main.setup () in
-    build_exn (fun () ->
+    let* setup = Util.setup () in
+    Build.build_memo_exn (fun () ->
       let open Memo.O in
       let* setup = setup in
       let* request =

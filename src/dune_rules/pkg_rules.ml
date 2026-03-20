@@ -491,7 +491,7 @@ module Pkg = struct
           ]
       | Ok contents ->
         let files, dirs =
-          let contents = Fs_cache.Dir_contents.to_list contents in
+          let contents = Fs_memo.Dir_contents.to_list contents in
           List.rev_filter_partition_map contents ~f:(fun (name, kind) ->
             (* TODO handle links and cycles correctly *)
             match kind with
@@ -974,6 +974,7 @@ module Action_expander = struct
          let loc =
            let loc = function
              | Slang.Nil -> None
+             | Slang.Undefined -> None
              | Literal sw -> Some (String_with_vars.loc sw)
              | Form (loc, _) -> Some loc
            in
