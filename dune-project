@@ -77,7 +77,8 @@ executable was built.
  (dir otherlibs/dune-private-libs)
  (synopsis "Private libraries of Dune")
  (depends
-  (csexp (>= 1.5.0))
+  ;(csexp (>= 1.5.0))
+  csexp
   (pp (>= 1.1.0))
   (dyn (= :version))
   (stdune (= :version))
