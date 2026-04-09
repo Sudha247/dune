@@ -7,6 +7,7 @@ let man =
   ; `P
       {|Dump Dune rules for the given targets.
            If no targets are given, dump all the rules.|}
+  ; `P {|With $(b,--deps), only print the dependencies of the matching rules.|}
   ; `P
       {|By default the output is a list of S-expressions,
            one S-expression per rule. Each S-expression is of the form:|}
@@ -26,32 +27,6 @@ let man =
 ;;
 
 let info = Cmd.info "rules" ~doc ~man
-
-let print_rule_makefile ppf (rule : Dune_engine.Reflection.Rule.t) =
-  let action =
-    Action.For_shell.Progn
-      [ Mkdir (Path.to_string (Path.build rule.targets.root))
-      ; Action.for_shell rule.action
-      ]
-  in
-  (* Makefiles seem to allow directory targets, so we include them. *)
-  let targets =
-    Filename.Set.union rule.targets.files rule.targets.dirs
-    |> Filename.Set.to_list_map ~f:(fun basename ->
-      Path.Build.relative rule.targets.root basename |> Path.build)
-  in
-  Format.fprintf
-    ppf
-    "@[<hov 2>@{<makefile-stuff>%a:%t@}@]@,@<0>\t@{<makefile-action>%a@}\n"
-    (Format.pp_print_list ~pp_sep:Format.pp_print_space (fun ppf p ->
-       Format.pp_print_string ppf (Path.to_string p)))
-    targets
-    (fun ppf ->
-       Path.Set.iter rule.expanded_deps ~f:(fun dep ->
-         Format.fprintf ppf "@ %s" (Path.to_string dep)))
-    Pp.to_fmt
-    (Action_to_sh.pp action)
-;;
 
 let rec encode : Action.For_shell.t -> Dune_lang.t =
   let module Outputs = Dune_lang.Action.Outputs in
@@ -185,27 +160,14 @@ let print_rule_sexp ppf (rule : Dune_engine.Reflection.Rule.t) =
   Format.fprintf ppf "%a@," Pp.to_fmt (Dune_lang.pp sexp)
 ;;
 
+let print_rule_deps ppf (rule : Dune_engine.Reflection.Rule.t) =
+  Format.fprintf ppf "%a@," Pp.to_fmt (Dune_lang.pp (encode_dep_set rule.deps))
+;;
+
 module Syntax = struct
-  type t =
-    | Makefile
-    | Sexp
+  type formatter_state = In_atom
 
-  let term =
-    let doc = "Output the rules in Makefile syntax." in
-    let+ makefile = Arg.(value & flag & info [ "m"; "makefile" ] ~doc:(Some doc)) in
-    if makefile then Makefile else Sexp
-  ;;
-
-  let print_rule = function
-    | Makefile -> print_rule_makefile
-    | Sexp -> print_rule_sexp
-  ;;
-
-  type formatter_state =
-    | In_atom
-    | In_makefile_action
-    | In_makefile_stuff
-
+  (* CR-someday rgrinberg: what is all of this? consider deleting *)
   let prepare_formatter ppf =
     let state = ref [] in
     Format.pp_set_mark_tags ppf true;
@@ -219,18 +181,10 @@ module Syntax = struct
             | Format.String_tag "atom" ->
               state := In_atom :: !state;
               ""
-            | Format.String_tag "makefile-action" ->
-              state := In_makefile_action :: !state;
-              ""
-            | Format.String_tag "makefile-stuff" ->
-              state := In_makefile_stuff :: !state;
-              ""
             | s -> tfuncs.mark_open_stag s)
       ; mark_close_stag =
           (function
-            | Format.String_tag "atom"
-            | Format.String_tag "makefile-action"
-            | Format.String_tag "makefile-stuff" ->
+            | Format.String_tag "atom" ->
               state := List.tl !state;
               ""
             | s -> tfuncs.mark_close_stag s)
@@ -241,10 +195,7 @@ module Syntax = struct
         out_newline =
           (fun () ->
             match !state with
-            | [ In_atom; In_makefile_action ] -> ofuncs.out_string "\\\n\t" 0 3
             | [ In_atom ] -> ofuncs.out_string "\\\n" 0 2
-            | [ In_makefile_action ] -> ofuncs.out_string " \\\n\t" 0 4
-            | [ In_makefile_stuff ] -> ofuncs.out_string " \\\n" 0 3
             | [] -> ofuncs.out_string "\n" 0 1
             | _ -> assert false)
       ; out_spaces =
@@ -256,13 +207,19 @@ module Syntax = struct
       }
   ;;
 
-  let print_rules syntax ppf rules =
+  let print_rules ppf rules =
     prepare_formatter ppf;
     Format.pp_open_vbox ppf 0;
-    Format.pp_print_list (print_rule syntax) ppf rules;
+    Format.pp_print_list print_rule_sexp ppf rules;
     Format.pp_print_flush ppf ()
   ;;
 end
+
+let print_rule_deps_only ppf rules =
+  Format.pp_open_vbox ppf 0;
+  Format.pp_print_list print_rule_deps ppf rules;
+  Format.pp_print_flush ppf ()
+;;
 
 let term =
   let+ builder = Common.Builder.term
@@ -281,7 +238,11 @@ let term =
             (Some
                "Print all rules needed to build the transitive dependencies of the given \
                 targets."))
-  and+ syntax = Syntax.term
+  and+ deps_only =
+    Arg.(
+      value
+      & flag
+      & info [ "deps" ] ~doc:(Some "Only print the dependencies of matching rules."))
   (* CR-someday Alizter: document this option *)
   and+ targets = Arg.(value & pos_all dep [] & Arg.info [] ~docv:"TARGET" ~doc:None) in
   let common, config = Common.init builder in
@@ -303,7 +264,7 @@ let term =
       let+ rules = Dune_engine.Reflection.eval ~request ~recursive in
       let print oc =
         let ppf = Format.formatter_of_out_channel oc in
-        Syntax.print_rules syntax ppf rules
+        if deps_only then print_rule_deps_only ppf rules else Syntax.print_rules ppf rules
       in
       match out with
       | None -> print stdout
