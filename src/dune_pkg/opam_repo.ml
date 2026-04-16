@@ -122,7 +122,34 @@ let of_git_repo loc url =
   { source = Repo at_rev; serializable; loc }
 ;;
 
-let resolve_repositories ~available_repos ~repositories =
+let of_git_repo_with_fallback loc url ~fallback_repos =
+  let* result =
+    Fiber.collect_errors (fun () -> of_git_repo loc url)
+  in
+  match result with
+  | Ok repo -> Fiber.return repo
+  | Error exns ->
+    let base_url = OpamUrl.base_url url in
+    let fallback =
+      List.find_map fallback_repos ~f:(fun serializable ->
+        let s = OpamUrl.of_string serializable in
+        if String.equal (OpamUrl.base_url s) base_url
+        then Some s
+        else None)
+    in
+    (match fallback with
+     | Some pinned_url ->
+       User_warning.emit
+         [ Pp.textf
+             "Unable to fetch latest refs from %s. \
+              Using previously resolved commit."
+             base_url
+         ];
+       of_git_repo loc pinned_url
+     | None -> Fiber.reraise_all exns)
+;;
+
+let resolve_repositories ~available_repos ~repositories ~fallback_repos =
   repositories
   |> Fiber.parallel_map ~f:(fun (loc, name) ->
     match Workspace.Repository.Name.Map.find available_repos name with
@@ -136,7 +163,7 @@ let resolve_repositories ~available_repos ~repositories =
     | Some repo ->
       let loc, opam_url = Workspace.Repository.opam_url repo in
       (match OpamUrl.classify opam_url loc with
-       | `Git -> of_git_repo loc opam_url
+       | `Git -> of_git_repo_with_fallback loc opam_url ~fallback_repos
        | `Path path -> Fiber.return @@ of_opam_repo_dir_path loc path
        | `Archive ->
          User_error.raise

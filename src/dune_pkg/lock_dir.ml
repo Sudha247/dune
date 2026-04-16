@@ -970,6 +970,7 @@ module Repositories = struct
     }
 
   let default = { complete = false; used = None }
+  let used t = t.used
 
   let equal { complete; used } t =
     Bool.equal complete t.complete

@@ -31,6 +31,7 @@ val of_git_repo : Loc.t -> OpamUrl.t -> t Fiber.t
 val resolve_repositories
   :  available_repos:Workspace.Repository.t Workspace.Repository.Name.Map.t
   -> repositories:(Loc.t * Workspace.Repository.Name.t) list
+  -> fallback_repos:Serializable.t list
   -> t list Fiber.t
 
 val revision : t -> Rev_store.At_rev.t

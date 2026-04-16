@@ -331,7 +331,21 @@ let setup_lock_rules ~dir ~lock_dir : Gen_rules.result =
                   Pkg_workspace.Repository.name repo, repo)
                 |> Pkg_workspace.Repository.Name.Map.of_list_exn
               in
-              Opam_repo.resolve_repositories ~available_repos ~repositories
+              let fallback_repos =
+                let target_path = Path.build target in
+                if Fpath.exists (Path.to_string target_path)
+                then
+                  match Dune_pkg.Lock_dir.read_disk target_path with
+                  | Ok lockdir ->
+                    Dune_pkg.Lock_dir.Repositories.used lockdir.repos
+                    |> Option.value ~default:[]
+                  | Error _ -> []
+                else []
+              in
+              Opam_repo.resolve_repositories
+                ~available_repos
+                ~repositories
+                ~fallback_repos
               |> Memo.of_non_reproducible_fiber))
        and+ pins =
          (* CR-soon Alizter: This pin logic (extracting workspace pins,

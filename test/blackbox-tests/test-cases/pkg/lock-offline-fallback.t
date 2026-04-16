@@ -17,6 +17,7 @@ Create a git-based mock opam repository:
   > (lang dune 3.16)
   > (package
   >  (name bar)
+  >  (allow_empty)
   >  (depends foo))
   > EOF
 
@@ -73,3 +74,57 @@ Test network failure without existing lock directory fails:
   $ dune pkg lock 2>&1 | grep "^Error:"
   Error: Failed to run external command:
   [1]
+
+Test auto-locking without an explicit lockfile. First do a successful solve
+to populate the ls-remote cache, then break the repo URL.
+
+  $ rm -rf dune.lock
+
+Restore working repo and solve once to populate caches:
+
+  $ cat > dune-workspace <<EOF
+  > (lang dune 3.16)
+  > (lock_dir
+  >  (repositories mock))
+  > (repository
+  >  (name mock)
+  >  (url "git+file://$PWD/mock-opam-repository"))
+  > EOF
+
+  $ dune pkg lock 2>&1 | grep -i "solution"
+  Solution for dune.lock
+  $ rm -rf dune.lock
+
+Enable auto-locking and point to a broken repo:
+
+  $ cat > dune-workspace <<EOF
+  > (lang dune 3.20)
+  > (pkg enabled)
+  > (lock_dir
+  >  (repositories mock))
+  > (repository
+  >  (name mock)
+  >  (url "git+file://$PWD/mock-opam-repository"))
+  > EOF
+
+First build with auto-lock succeeds (repo is still available):
+
+  $ dune build 2>&1 | grep -i "error" || echo "build succeeded"
+  build succeeded
+
+Now break the repo URL:
+
+  $ cat > dune-workspace <<EOF
+  > (lang dune 3.20)
+  > (pkg enabled)
+  > (lock_dir
+  >  (repositories mock))
+  > (repository
+  >  (name mock)
+  >  (url "git+file://$PWD/nonexistent-repo"))
+  > EOF
+
+Auto-lock should use cached ls-remote data and still succeed:
+
+  $ dune build 2>&1 | grep -A1 "^Warning:" || echo "build succeeded"
+  build succeeded

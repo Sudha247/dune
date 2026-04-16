@@ -85,6 +85,8 @@ end
 
 module Repositories : sig
   type t
+
+  val used : t -> Opam_repo.Serializable.t list option
 end
 
 module Packages : sig

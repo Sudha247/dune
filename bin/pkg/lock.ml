@@ -375,9 +375,20 @@ let solve_lock_dir
     in
     progress_state
     := Some (Progress_indicator.Per_lockdir.State.Updating_repos repo_names);
+    let fallback_repos =
+      if Fpath.exists (Path.to_string lock_dir_path)
+      then
+        match Dune_pkg.Lock_dir.read_disk lock_dir_path with
+        | Ok lockdir ->
+          Dune_pkg.Lock_dir.Repositories.used lockdir.repos
+          |> Option.value ~default:[]
+        | Error _ -> []
+      else []
+    in
     Dune_pkg.Opam_repo.resolve_repositories
       ~available_repos:repo_map
       ~repositories:(repositories_of_lock_dir workspace ~lock_dir_path)
+      ~fallback_repos
   in
   let* pins = resolve_project_pins project_pins in
   let time_solve_start = Time.now () in
