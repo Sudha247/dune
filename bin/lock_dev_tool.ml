@@ -91,6 +91,7 @@ let solve ~dev_tool ~local_packages =
        workspace
        ~local_packages
        ~project_pins:compiler_pins
+       ~no_update:false
        ~solver_env_from_current_system
        ~version_preference:None
        ~lock_dirs:[ lock_dir ]

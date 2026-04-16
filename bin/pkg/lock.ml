@@ -306,6 +306,7 @@ let solve_lock_dir
       workspace
       ~local_packages
       ~project_pins
+      ~no_update
       ~print_perf_stats
       ~portable_lock_dir
       version_preference
@@ -314,6 +315,26 @@ let solve_lock_dir
       progress_state
   =
   let open Fiber.O in
+  if no_update
+  then
+    if Fpath.exists (Path.to_string lock_dir_path)
+    then (
+      Console.print_user_message
+        (User_message.make
+           [ Pp.textf
+               "Using existing lock directory %s."
+               (Path.to_string_maybe_quoted (user_lock_dir_path lock_dir_path))
+           ]);
+      progress_state := None;
+      (* No directories to update *)
+      Fiber.return (Ok None))
+    else
+      User_error.raise
+        [ Pp.textf
+            "No existing lock directory %s and --no-update was specified."
+            (Path.to_string_maybe_quoted (user_lock_dir_path lock_dir_path))
+        ]
+  else
   let lock_dir = Workspace.find_lock_dir workspace lock_dir_path in
   let project_pins, solve_for_platforms =
     match lock_dir with
@@ -446,14 +467,16 @@ let solve_lock_dir
     progress_state := None;
     let+ lock_dir = Lock_dir.compute_missing_checksums ~pinned_packages lock_dir in
     Ok
-      ( Lock_dir.Write_disk.prepare ~portable_lock_dir ~lock_dir_path ~files lock_dir
-      , summary_message )
+      (Some
+         ( Lock_dir.Write_disk.prepare ~portable_lock_dir ~lock_dir_path ~files lock_dir
+         , summary_message ))
 ;;
 
 let solve
       workspace
       ~local_packages
       ~project_pins
+      ~no_update
       ~solver_env_from_current_system
       ~version_preference
       ~lock_dirs
@@ -476,18 +499,37 @@ let solve
            Fiber.return ())
          (fun () ->
             Fiber.parallel_map progress_indicator ~f:(fun { lockdir_path; state } ->
-              solve_lock_dir
-                workspace
-                ~local_packages
-                ~project_pins
-                ~print_perf_stats
-                ~portable_lock_dir
-                version_preference
-                solver_env_from_current_system
-                lockdir_path
-                state))
+              let* collected =
+                Fiber.collect_errors (fun () ->
+                  solve_lock_dir
+                    workspace
+                    ~local_packages
+                    ~project_pins
+                    ~no_update
+                    ~print_perf_stats
+                    ~portable_lock_dir
+                    version_preference
+                    solver_env_from_current_system
+                    lockdir_path
+                    state)
+              in
+              match collected with
+              | Ok result -> Fiber.return result
+              | Error exns ->
+                if Fpath.exists (Path.to_string lockdir_path)
+                then (
+                  state := None;
+                  User_warning.emit
+                    [ Pp.textf
+                        "Unable to connect to package repositories for lock directory \
+                         %s. The existing lock directory will be used unchanged."
+                        (Path.to_string_maybe_quoted (user_lock_dir_path lockdir_path))
+                    ];
+                  Fiber.return (Ok None))
+                else Fiber.reraise_all exns))
      in
-     List.partition_map result ~f:Result.to_either
+     let errors, solutions_opt = List.partition_map result ~f:Result.to_either in
+     errors, List.filter_map solutions_opt ~f:Fun.id
    in
    match errors with
    | [] -> Ok solutions
@@ -529,7 +571,13 @@ let project_pins =
     Pin.DB.combine_exn acc pins)
 ;;
 
-let lock ~version_preference ~lock_dirs_arg ~print_perf_stats ~portable_lock_dir =
+let lock
+      ~version_preference
+      ~lock_dirs_arg
+      ~no_update
+      ~print_perf_stats
+      ~portable_lock_dir
+  =
   let open Fiber.O in
   let* solver_env_from_current_system =
     poll_solver_env_from_current_system () >>| Option.some
@@ -550,6 +598,7 @@ let lock ~version_preference ~lock_dirs_arg ~print_perf_stats ~portable_lock_dir
     workspace
     ~local_packages
     ~project_pins
+    ~no_update
     ~solver_env_from_current_system
     ~version_preference
     ~lock_dirs
@@ -562,7 +611,18 @@ let term =
   and+ version_preference = Version_preference.term
   and+ lock_dirs_arg = Pkg_common.Lock_dirs_arg.term
   (* CR-someday Alizter: document this option *)
-  and+ print_perf_stats = Arg.(value & flag & info [ "print-perf-stats" ] ~doc:None) in
+  and+ print_perf_stats = Arg.(value & flag & info [ "print-perf-stats" ] ~doc:None)
+  and+ no_update =
+    Arg.(
+      value
+      & flag
+      & info
+          [ "no-update" ]
+          ~doc:
+            (Some
+               "Don't fetch updates from package repositories. Uses the existing lock \
+                directory if available."))
+  in
   let builder = Common.Builder.forbid_builds builder in
   let common, config = Common.init builder in
   Scheduler_setup.go_with_rpc_server ~common ~config (fun () ->
@@ -574,7 +634,12 @@ let term =
       | `Enabled -> true
       | `Disabled -> false
     in
-    lock ~version_preference ~lock_dirs_arg ~print_perf_stats ~portable_lock_dir)
+    lock
+      ~version_preference
+      ~lock_dirs_arg
+      ~no_update
+      ~print_perf_stats
+      ~portable_lock_dir)
 ;;
 
 let info =
