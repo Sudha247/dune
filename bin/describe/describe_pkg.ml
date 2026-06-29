@@ -233,10 +233,136 @@ module List_locked_dependencies = struct
   let command = Cmd.v info term
 end
 
+module Tree = struct
+  module Package_universe = Dune_pkg.Package_universe
+
+  let info =
+    let doc = "Display the dependency tree of the packages in a lockdir" in
+    let man = [ `S "DESCRIPTION"; `P doc ] in
+    Cmd.info "tree" ~doc ~man
+  ;;
+
+  (* Immediate dependencies of [package_name] on [platform]. Local packages
+     aren't present in the lockdir, so their dependencies are resolved through
+     the package universe; the dependencies of all other (locked) packages are
+     read directly from the lockdir's dependency graph. *)
+  let immediate_dependencies
+        package_universe
+        ~local_packages
+        ~platform_pkgs
+        ~platform
+        package_name
+    =
+    let deps =
+      if Package_name.Map.mem local_packages package_name
+      then
+        Package_universe.opam_package_dependencies_of_package
+          package_universe
+          package_name
+          ~which:`All
+          ~traverse:`Immediate
+        |> List.map ~f:(fun opam_package ->
+          Dune_pkg.Package_name.of_opam_package_name (OpamPackage.name opam_package))
+      else (
+        match Package_name.Map.find platform_pkgs package_name with
+        | None -> []
+        | Some (pkg : Lock_dir.Pkg.t) ->
+          Lock_dir.Conditional_choice.choose_for_platform pkg.depends ~platform
+          |> Option.value ~default:[]
+          |> List.filter_map ~f:(fun (dep : Lock_dir.Dependency.t) ->
+            Option.some_if (Package_name.Map.mem platform_pkgs dep.name) dep.name))
+    in
+    List.sort deps ~compare:Package_name.compare
+  ;;
+
+  let package_tree_pp package_universe ~local_packages ~platform_pkgs ~platform =
+    let rec node_pp package_name =
+      let label =
+        OpamPackage.to_string
+          (Package_universe.opam_package_of_package package_universe package_name)
+      in
+      match
+        immediate_dependencies
+          package_universe
+          ~local_packages
+          ~platform_pkgs
+          ~platform
+          package_name
+      with
+      | [] -> Pp.text label
+      | children ->
+        Pp.vbox
+          (Pp.concat
+             ~sep:Pp.cut
+             [ Pp.hbox (Pp.text label); Pp.enumerate children ~f:node_pp |> Pp.box ])
+    in
+    node_pp
+  ;;
+
+  let print_tree ~lock_dirs () =
+    let open Fiber.O in
+    let* lock_dirs_by_path, local_packages =
+      let open Memo.O in
+      Memo.both
+        (Workspace.workspace ()
+         >>| List_locked_dependencies.enumerate_lock_dirs_by_path ~lock_dirs)
+        Pkg.Pkg_common.find_local_packages
+      |> Memo.run
+    in
+    let+ pp =
+      Fiber.parallel_map lock_dirs_by_path ~f:(fun (lock_dir_path, lock_dir) ->
+        let lock_dir_path = Path.source lock_dir_path in
+        let+ platform =
+          Pkg.Pkg_common.solver_env_from_system_and_context ~lock_dir_path
+        in
+        let package_universe =
+          Package_universe.create ~platform local_packages lock_dir |> User_error.ok_exn
+        in
+        let platform_pkgs =
+          Lock_dir.Packages.pkgs_on_platform_by_name lock_dir.packages ~platform
+        in
+        Pp.vbox
+          (Pp.concat
+             ~sep:Pp.cut
+             [ Pp.hbox
+                 (Pp.textf
+                    "Dependency tree of local packages locked in %s"
+                    (Path.to_string_maybe_quoted lock_dir_path))
+             ; Pp.enumerate
+                 (Package_name.Map.keys local_packages)
+                 ~f:
+                   (package_tree_pp
+                      package_universe
+                      ~local_packages
+                      ~platform_pkgs
+                      ~platform)
+               |> Pp.box
+             ]))
+      >>| Pp.concat ~sep:Pp.cut
+      >>| Pp.vbox
+    in
+    Console.print [ pp ]
+  ;;
+
+  let term =
+    let+ builder = Common.Builder.term
+    and+ lock_dirs = Pkg.Pkg_common.Lock_dirs_arg.term in
+    let builder = Common.Builder.forbid_builds builder in
+    let common, config = Common.init builder in
+    Scheduler_setup.go_with_rpc_server ~common ~config @@ print_tree ~lock_dirs
+  ;;
+
+  let command = Cmd.v info term
+end
+
 let command =
   let doc = "Subcommands related to package management" in
   let info = Cmd.info ~doc "pkg" in
   Cmd.group
     info
-    [ Show_lock.command; List_locked_dependencies.command; Dependency_hash.command ]
+    [ Show_lock.command
+    ; List_locked_dependencies.command
+    ; Tree.command
+    ; Dependency_hash.command
+    ]
 ;;
