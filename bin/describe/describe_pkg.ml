@@ -233,141 +233,17 @@ module List_locked_dependencies = struct
   let command = Cmd.v info term
 end
 
-(* The dependency tree of the local packages locked in a lockdir. Each package's
-   subtree is expanded only the first time it is encountered; [occurrences]
-   records how many times a package occurs in the fully-expanded tree. *)
-module Dependency_tree = struct
+module Tree = struct
   module Package_universe = Dune_pkg.Package_universe
 
-  type t =
-    { package : OpamPackage.t
-    ; occurrences : int
-    ; deps : t list
-    }
-
-  (* Immediate dependencies of [package_name] on [platform]. Local packages
-     aren't present in the lockdir, so their dependencies are resolved through
-     the package universe; the dependencies of all other (locked) packages are
-     read directly from the lockdir's dependency graph. *)
-  let immediate_dependencies
-        package_universe
-        ~local_packages
-        ~platform_pkgs
-        ~platform
-        package_name
-    =
-    let deps =
-      if Package_name.Map.mem local_packages package_name
-      then
-        Package_universe.opam_package_dependencies_of_package
-          package_universe
-          package_name
-          ~which:`All
-          ~traverse:`Immediate
-        |> List.map ~f:(fun opam_package ->
-          Dune_pkg.Package_name.of_opam_package_name (OpamPackage.name opam_package))
-      else (
-        match Package_name.Map.find platform_pkgs package_name with
-        | None -> []
-        | Some (pkg : Lock_dir.Pkg.t) ->
-          Lock_dir.Conditional_choice.choose_for_platform pkg.depends ~platform
-          |> Option.value ~default:[]
-          |> List.filter_map ~f:(fun (dep : Lock_dir.Dependency.t) ->
-            Option.some_if (Package_name.Map.mem platform_pkgs dep.name) dep.name))
-    in
-    List.sort deps ~compare:Package_name.compare
-  ;;
-
-  let create package_universe ~local_packages ~platform_pkgs ~platform roots =
-    (* Memoized so that the parents-graph and tree-building traversals don't each
-       re-resolve a package's dependencies (formula resolution for local
-       packages is not free). *)
-    let immediate_dependencies =
-      let immediate_deps = ref Package_name.Map.empty in
-      fun package_name ->
-        match Package_name.Map.find !immediate_deps package_name with
-        | Some deps -> deps
-        | None ->
-          let deps =
-            immediate_dependencies
-              package_universe
-              ~local_packages
-              ~platform_pkgs
-              ~platform
-              package_name
-          in
-          immediate_deps := Package_name.Map.set !immediate_deps package_name deps;
-          deps
-    in
-    (* Reverse dependency graph: the parents of each reachable package. Each
-       package's dependencies are expanded only once, so every edge is recorded
-       exactly once. *)
-    let parents =
-      let rec collect (parents, seen) package_name =
-        if Package_name.Set.mem seen package_name
-        then parents, seen
-        else (
-          let seen = Package_name.Set.add seen package_name in
-          List.fold_left
-            (immediate_dependencies package_name)
-            ~init:(parents, seen)
-            ~f:(fun (parents, seen) dependency ->
-              let parents = Package_name.Map.add_multi parents dependency package_name in
-              collect (parents, seen) dependency))
-      in
-      List.fold_left
-        roots
-        ~init:(Package_name.Map.empty, Package_name.Set.empty)
-        ~f:collect
-      |> fst
-    in
-    (* The number of times a package occurs in the fully-expanded tree: once for
-       each local package that is a root, plus, for each package that depends on
-       it, that package's own number of occurrences. *)
-    let occurrences =
-      let cache = ref Package_name.Map.empty in
-      let rec occurrences package_name =
-        match Package_name.Map.find !cache package_name with
-        | Some n -> n
-        | None ->
-          let from_roots =
-            if Package_name.Map.mem local_packages package_name then 1 else 0
-          in
-          let n =
-            Package_name.Map.find parents package_name
-            |> Option.value ~default:[]
-            |> List.fold_left ~init:from_roots ~f:(fun acc parent ->
-              acc + occurrences parent)
-          in
-          cache := Package_name.Map.set !cache package_name n;
-          n
-      in
-      occurrences
-    in
-    (* A package's subtree is expanded the first time it is encountered; later
-       encounters become leaves. [visited] is threaded through the traversal in
-       depth-first order rather than kept in a mutable cell. *)
-    let rec node visited package_name =
-      let make deps =
-        { package = Package_universe.opam_package_of_package package_universe package_name
-        ; occurrences = occurrences package_name
-        ; deps
-        }
-      in
-      if Package_name.Set.mem visited package_name
-      then visited, make []
-      else (
-        let visited = Package_name.Set.add visited package_name in
-        let visited, deps =
-          List.fold_map (immediate_dependencies package_name) ~init:visited ~f:node
-        in
-        visited, make deps)
-    in
-    List.fold_map roots ~init:Package_name.Set.empty ~f:node |> snd
+  let info =
+    let doc = "Display the dependency tree of the packages in a lockdir" in
+    let man = [ `S "DESCRIPTION"; `P doc ] in
+    Cmd.info "tree" ~doc ~man
   ;;
 
   let pp forest =
-    let rec pp_node { package; occurrences; deps } =
+    let rec pp_node { Dune_pkg.Dependency_tree.package; occurrences; deps } =
       let label =
         let name = OpamPackage.to_string package in
         if occurrences > 1 then sprintf "%s (*%d)" name occurrences else name
@@ -381,16 +257,6 @@ module Dependency_tree = struct
              [ Pp.hbox (Pp.text label); Pp.enumerate deps ~f:pp_node |> Pp.box ])
     in
     Pp.enumerate forest ~f:pp_node |> Pp.box
-  ;;
-end
-
-module Tree = struct
-  module Package_universe = Dune_pkg.Package_universe
-
-  let info =
-    let doc = "Display the dependency tree of the packages in a lockdir" in
-    let man = [ `S "DESCRIPTION"; `P doc ] in
-    Cmd.info "tree" ~doc ~man
   ;;
 
   let print_tree ~lock_dirs () =
@@ -412,9 +278,6 @@ module Tree = struct
         let package_universe =
           Package_universe.create ~platform local_packages lock_dir |> User_error.ok_exn
         in
-        let platform_pkgs =
-          Lock_dir.Packages.pkgs_on_platform_by_name lock_dir.packages ~platform
-        in
         Pp.vbox
           (Pp.concat
              ~sep:Pp.cut
@@ -422,13 +285,7 @@ module Tree = struct
                  (Pp.textf
                     "Dependency tree of local packages locked in %s"
                     (Path.to_string_maybe_quoted lock_dir_path))
-             ; Dependency_tree.create
-                 package_universe
-                 ~local_packages
-                 ~platform_pkgs
-                 ~platform
-                 (Package_name.Map.keys local_packages)
-               |> Dependency_tree.pp
+             ; Dune_pkg.Dependency_tree.create package_universe |> pp
              ]))
       >>| Pp.concat ~sep:Pp.cut
       >>| Pp.vbox
