@@ -24,6 +24,50 @@ module Lock_dir : sig
   val to_dyn : t -> Dyn.t
 end
 
+module Tool : sig
+  module Package_entry : sig
+    type t =
+      { loc : Loc.t
+      ; package : Dune_lang.Package_dependency.t
+      ; binaries : (Loc.t * string) list option
+        (** [None] when the entry does not use the [as] form: the package
+            provides a single binary named after the package itself. *)
+      }
+
+    (** The binary names this entry exposes, defaulting to the package name
+        when the entry does not use the [as] form. *)
+    val exposed_binaries : t -> (Loc.t * string) list
+
+    val package_name : t -> Package.Name.t
+  end
+
+  (** The solve settings of a tool stanza after applying precedence:
+      built-in defaults, overridden by fields inherited via [inherit_lock_dir],
+      overridden by fields written in the stanza itself. *)
+  module Effective : sig
+    type t =
+      { version_preference : Dune_pkg.Version_preference.t option
+      ; solver_env : Dune_pkg.Solver_env.t option
+      ; unset_solver_vars : Dune_lang.Package_variable_name.Set.t option
+      ; repositories : (Loc.t * Dune_pkg.Pkg_workspace.Repository.Name.t) list
+      ; solve_for_platforms : Dune_pkg.Solver_env.t list
+      }
+  end
+
+  type t =
+    { loc : Loc.t
+    ; packages : Package_entry.t list
+    ; inherit_lock_dir : (Loc.t * Path.Source.t) option
+    ; solve : Effective.t
+    ; constraints : Dune_lang.Package_dependency.t list
+    ; pins : (Loc.t * string) list
+    ; skip_compiler_match : bool
+    }
+
+  val equal : t -> t -> bool
+  val to_dyn : t -> Dyn.t
+end
+
 module Lock_dir_selection : sig
   (** A DSL for selecting a lockdir either by literally naming it or using a
       cond expression to select a lockdir based on blangs *)
@@ -139,6 +183,7 @@ type t = private
   ; config : Dune_config.t
   ; repos : Dune_pkg.Pkg_workspace.Repository.t list
   ; lock_dirs : Lock_dir.t list
+  ; tools : Tool.t list
   ; dir : Path.Source.t
   ; pins : Pin_stanza.Workspace.t
   }

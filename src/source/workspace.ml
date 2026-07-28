@@ -17,6 +17,80 @@ let default_repositories =
   [ Repository.overlay; Repository.relocatable; Repository.upstream ]
 ;;
 
+let default_repositories_with_loc =
+  List.map default_repositories ~f:(fun d -> Loc.none, Repository.name d)
+;;
+
+let repositories_of_ordered_set ~standard ordered_set =
+  Dune_lang.Ordered_set_lang.eval
+    ordered_set
+    ~parse:(fun ~loc string ->
+      loc, Dune_pkg.Pkg_workspace.Repository.Name.parse_string_exn (loc, string))
+    ~eq:(fun (_, x) (_, y) -> Dune_pkg.Pkg_workspace.Repository.Name.equal x y)
+    ~standard
+;;
+
+module Solver_settings = struct
+  type t =
+    { version_preference : Dune_pkg.Version_preference.t option
+    ; solver_env : Solver_env.t option
+    ; unset_solver_vars : Package_variable_name.Set.t option
+    ; repositories : Dune_lang.Ordered_set_lang.t option
+    ; solve_for_platforms : Solver_env.t list option
+    }
+
+  let decode_fields =
+    let+ solver_env = field_o "solver_env" Solver_env.decode
+    and+ unset_solver_vars =
+      field_o "unset_solver_vars" (repeat (located Package_variable_name.decode))
+    and+ version_preference =
+      field_o "version_preference" Dune_pkg.Version_preference.decode
+    and+ repositories = field_o "repositories" Dune_lang.Ordered_set_lang.decode
+    and+ solve_for_platforms =
+      located (field_o "solve_for_platforms" (repeat @@ enter Solver_env.decode))
+    in
+    let solve_for_platforms =
+      let loc, solve_for_platforms = solve_for_platforms in
+      Option.map solve_for_platforms ~f:(fun solve_for_platforms ->
+        if List.is_empty solve_for_platforms
+        then
+          User_error.raise
+            ~loc
+            [ Pp.text "No platforms were specified for solving dependencies." ]
+            ~hints:
+              [ Pp.text
+                  "Specify at least one platform here, or remove this field to solve for \
+                   the default platforms."
+              ];
+        solve_for_platforms)
+    in
+    Option.iter solver_env ~f:(fun solver_env ->
+      Option.iter
+        unset_solver_vars
+        ~f:
+          (List.iter ~f:(fun (loc, variable) ->
+             if Option.is_some (Solver_env.get solver_env variable)
+             then
+               User_error.raise
+                 ~loc
+                 [ Pp.textf
+                     "Variable %S appears in both 'solver_env' and 'unset_solver_vars' \
+                      which is not allowed."
+                     (Package_variable_name.to_string variable)
+                 ])));
+    let unset_solver_vars =
+      Option.map unset_solver_vars ~f:(fun x ->
+        List.map x ~f:snd |> Package_variable_name.Set.of_list)
+    in
+    { version_preference
+    ; solver_env
+    ; unset_solver_vars
+    ; repositories
+    ; solve_for_platforms
+    }
+  ;;
+end
+
 module Lock_dir = struct
   type t =
     { loc : Loc.t
@@ -121,81 +195,348 @@ module Lock_dir = struct
   ;;
 
   let decode ~dir =
-    let repositories_of_ordered_set ordered_set =
-      Dune_lang.Ordered_set_lang.eval
-        ordered_set
-        ~parse:(fun ~loc string ->
-          loc, Dune_pkg.Pkg_workspace.Repository.Name.parse_string_exn (loc, string))
-        ~eq:(fun (_, x) (_, y) -> Dune_pkg.Pkg_workspace.Repository.Name.equal x y)
-        ~standard:
-          (List.map default_repositories ~f:(fun d -> Loc.none, Repository.name d))
-    in
     let decode =
       let+ loc = loc
       and+ path =
         let+ path = field ~default:"dune.lock" "path" string in
         Path.Source.relative dir path
-      and+ solver_env = field_o "solver_env" Solver_env.decode
-      and+ unset_solver_vars =
-        field_o "unset_solver_vars" (repeat (located Package_variable_name.decode))
-      and+ version_preference =
-        field_o "version_preference" Dune_pkg.Version_preference.decode
-      and+ repositories = Dune_lang.Ordered_set_lang.field "repositories"
+      and+ solver_settings = Solver_settings.decode_fields
       and+ constraints =
         field ~default:[] "constraints" (repeat Dune_lang.Package_dependency.decode)
       and+ depopts = field ~default:[] "depopts" (repeat (located Package.Name.decode))
-      and+ pins = field ~default:[] "pins" (repeat (located string))
-      and+ solve_for_platforms =
-        let+ loc, solve_for_platforms =
-          located
-          @@ field
-               ~default:Solver_env.popular_platform_envs
-               "solve_for_platforms"
-               (repeat @@ enter Solver_env.decode)
-        in
-        if List.is_empty solve_for_platforms
-        then
-          User_error.raise
-            ~loc
-            [ Pp.text "No platforms were specified for solving dependencies." ]
-            ~hints:
-              [ Pp.text
-                  "Specify at least one platform here, or remove this field to solve for \
-                   the default platforms."
-              ];
-        solve_for_platforms
-      in
-      Option.iter solver_env ~f:(fun solver_env ->
-        Option.iter
-          unset_solver_vars
-          ~f:
-            (List.iter ~f:(fun (loc, variable) ->
-               if Option.is_some (Solver_env.get solver_env variable)
-               then
-                 User_error.raise
-                   ~loc
-                   [ Pp.textf
-                       "Variable %S appears in both 'solver_env' and 'unset_solver_vars' \
-                        which is not allowed."
-                       (Package_variable_name.to_string variable)
-                   ])));
-      let unset_solver_vars =
-        Option.map unset_solver_vars ~f:(fun x ->
-          List.map x ~f:snd |> Package_variable_name.Set.of_list)
+      and+ pins = field ~default:[] "pins" (repeat (located string)) in
+      let { Solver_settings.version_preference
+          ; solver_env
+          ; unset_solver_vars
+          ; repositories
+          ; solve_for_platforms
+          }
+        =
+        solver_settings
       in
       { loc
       ; path
       ; solver_env
       ; unset_solver_vars
       ; version_preference
-      ; repositories = repositories_of_ordered_set repositories
+      ; repositories =
+          repositories_of_ordered_set
+            ~standard:default_repositories_with_loc
+            (Option.value repositories ~default:Dune_lang.Ordered_set_lang.standard)
       ; constraints
       ; pins
       ; depopts
-      ; solve_for_platforms
+      ; solve_for_platforms =
+          Option.value solve_for_platforms ~default:Solver_env.popular_platform_envs
       }
     in
     fields decode
+  ;;
+end
+
+module Tool = struct
+  module Package_entry = struct
+    type t =
+      { loc : Loc.t
+      ; package : Dune_lang.Package_dependency.t
+      ; binaries : (Loc.t * string) list option
+      }
+
+    let to_dyn { loc = _; package; binaries } =
+      Dyn.record
+        [ "package", Dune_lang.Package_dependency.to_dyn package
+        ; ( "binaries"
+          , Dyn.option (Dyn.list Dyn.string) (Option.map binaries ~f:(List.map ~f:snd)) )
+        ]
+    ;;
+
+    let equal { loc; package; binaries } t =
+      Loc.equal loc t.loc
+      && Dune_lang.Package_dependency.equal package t.package
+      && Option.equal
+           (List.equal (Tuple.T2.equal Loc.equal String.equal))
+           binaries
+           t.binaries
+    ;;
+
+    let hash { loc; package; binaries } = Poly.hash (loc, package, binaries)
+    let package_name { package = { Dune_lang.Package_dependency.name; _ }; _ } = name
+
+    let exposed_binaries t =
+      match t.binaries with
+      | Some binaries -> binaries
+      | None -> [ t.loc, Package.Name.to_string (package_name t) ]
+    ;;
+
+    let decode =
+      let binaries =
+        peek_exn
+        >>= function
+        | Atom _ | Quoted_string _ ->
+          let+ binary = located string in
+          [ binary ]
+        | List _ -> enter (repeat1 (located string))
+        | sexp ->
+          User_error.raise
+            ~loc:(Dune_lang.Ast.loc sexp)
+            [ Pp.text "Expected a binary name or a list of binary names." ]
+      in
+      peek_exn
+      >>= function
+      | List (_, _ :: Atom (_, A "as") :: _) ->
+        enter
+          (let+ loc = loc
+           and+ package = Dune_lang.Package_dependency.decode
+           and+ () = keyword "as"
+           and+ binaries = binaries in
+           { loc; package; binaries = Some binaries })
+      | Atom _ | Quoted_string _ | List _ ->
+        let+ loc, package = located Dune_lang.Package_dependency.decode in
+        { loc; package; binaries = None }
+      | sexp ->
+        User_error.raise
+          ~loc:(Dune_lang.Ast.loc sexp)
+          [ Pp.text "Invalid package entry. Expected one of:"
+          ; Pp.enumerate
+              ~f:Pp.verbatim
+              [ "<package>"
+              ; "(<package> <constraint>)"
+              ; "(<package> as <binary>)"
+              ; "(<package> as (<binary> ...))"
+              ]
+          ]
+    ;;
+  end
+
+  module Effective = struct
+    type t =
+      { version_preference : Dune_pkg.Version_preference.t option
+      ; solver_env : Solver_env.t option
+      ; unset_solver_vars : Package_variable_name.Set.t option
+      ; repositories : (Loc.t * Dune_pkg.Pkg_workspace.Repository.Name.t) list
+      ; solve_for_platforms : Solver_env.t list
+      }
+
+    let to_dyn
+          { version_preference
+          ; solver_env
+          ; unset_solver_vars
+          ; repositories
+          ; solve_for_platforms
+          }
+      =
+      Dyn.record
+        [ ( "version_preference"
+          , Dyn.option Dune_pkg.Version_preference.to_dyn version_preference )
+        ; "solver_env", Dyn.option Solver_env.to_dyn solver_env
+        ; ( "unset_solver_vars"
+          , Dyn.option Package_variable_name.Set.to_dyn unset_solver_vars )
+        ; ( "repositories"
+          , Dyn.list
+              Dune_pkg.Pkg_workspace.Repository.Name.to_dyn
+              (List.map repositories ~f:snd) )
+        ; "solve_for_platforms", (Dyn.list Solver_env.to_dyn) solve_for_platforms
+        ]
+    ;;
+
+    let equal
+          { version_preference
+          ; solver_env
+          ; unset_solver_vars
+          ; repositories
+          ; solve_for_platforms
+          }
+          t
+      =
+      Option.equal
+        Dune_pkg.Version_preference.equal
+        version_preference
+        t.version_preference
+      && Option.equal Solver_env.equal solver_env t.solver_env
+      && Option.equal
+           Package_variable_name.Set.equal
+           unset_solver_vars
+           t.unset_solver_vars
+      && List.equal
+           (Tuple.T2.equal Loc.equal Dune_pkg.Pkg_workspace.Repository.Name.equal)
+           repositories
+           t.repositories
+      && List.equal Solver_env.equal solve_for_platforms t.solve_for_platforms
+    ;;
+
+    let hash
+          { version_preference
+          ; solver_env
+          ; unset_solver_vars
+          ; repositories
+          ; solve_for_platforms
+          }
+      =
+      Poly.hash
+        ( version_preference
+        , solver_env
+        , unset_solver_vars
+        , repositories
+        , solve_for_platforms )
+    ;;
+  end
+
+  type t =
+    { loc : Loc.t
+    ; packages : Package_entry.t list
+    ; inherit_lock_dir : (Loc.t * Path.Source.t) option
+    ; solve : Effective.t
+    ; constraints : Dune_lang.Package_dependency.t list
+    ; pins : (Loc.t * string) list
+    ; skip_compiler_match : bool
+    }
+
+  let to_dyn
+        { loc; packages; inherit_lock_dir; solve; constraints; pins; skip_compiler_match }
+    =
+    Dyn.record
+      [ "loc", Loc.to_dyn loc
+      ; "packages", Dyn.list Package_entry.to_dyn packages
+      ; ( "inherit_lock_dir"
+        , Dyn.option Path.Source.to_dyn (Option.map inherit_lock_dir ~f:snd) )
+      ; "solve", Effective.to_dyn solve
+      ; "constraints", Dyn.list Dune_lang.Package_dependency.to_dyn constraints
+      ; "pins", (Dyn.list Dyn.string) (List.map pins ~f:snd)
+      ; "skip_compiler_match", Dyn.bool skip_compiler_match
+      ]
+  ;;
+
+  let equal
+        { loc; packages; inherit_lock_dir; solve; constraints; pins; skip_compiler_match }
+        t
+    =
+    Loc.equal loc t.loc
+    && List.equal Package_entry.equal packages t.packages
+    && Option.equal
+         (Tuple.T2.equal Loc.equal Path.Source.equal)
+         inherit_lock_dir
+         t.inherit_lock_dir
+    && Effective.equal solve t.solve
+    && List.equal Dune_lang.Package_dependency.equal constraints t.constraints
+    && List.equal (Tuple.T2.equal Loc.equal String.equal) pins t.pins
+    && Bool.equal skip_compiler_match t.skip_compiler_match
+  ;;
+
+  let hash
+        { loc; packages; inherit_lock_dir; solve; constraints; pins; skip_compiler_match }
+    =
+    Poly.hash
+      ( loc
+      , List.hash Package_entry.hash packages
+      , inherit_lock_dir
+      , Effective.hash solve
+      , constraints
+      , pins
+      , skip_compiler_match )
+  ;;
+
+  let check_no_dupe_packages packages =
+    match
+      Package.Name.Map.of_list_map packages ~f:(fun entry ->
+        Package_entry.package_name entry, entry)
+    with
+    | Ok _ -> ()
+    | Error (name, { Package_entry.loc = loc1; _ }, { Package_entry.loc = loc2; _ }) ->
+      User_error.raise
+        ~loc:loc2
+        [ Pp.textf
+            "Tool package %S is declared multiple times in this stanza:"
+            (Package.Name.to_string name)
+        ; Pp.enumerate ~f:Loc.pp_file_colon_line [ loc1; loc2 ]
+        ]
+  ;;
+
+  let resolve_solve ~lock_dirs ~inherit_lock_dir ~solver_settings =
+    let { Solver_settings.version_preference
+        ; solver_env
+        ; unset_solver_vars
+        ; repositories
+        ; solve_for_platforms
+        }
+      =
+      solver_settings
+    in
+    let inherited =
+      Option.map inherit_lock_dir ~f:(fun (loc, path) ->
+        match
+          List.find lock_dirs ~f:(fun (lock_dir : Lock_dir.t) ->
+            Path.Source.equal lock_dir.path path)
+        with
+        | Some lock_dir -> lock_dir
+        | None ->
+          User_error.raise
+            ~loc
+            [ Pp.textf
+                "No lock_dir stanza with path %S to inherit from."
+                (Path.Source.to_string path)
+            ]
+            ~hints:
+              [ Pp.text
+                  "Add a (lock_dir ...) stanza with this path, or remove this field."
+              ])
+    in
+    let inherit_field field ~f =
+      match field with
+      | Some _ as x -> x
+      | None -> Option.bind inherited ~f
+    in
+    { Effective.version_preference =
+        inherit_field version_preference ~f:(fun { Lock_dir.version_preference; _ } ->
+          version_preference)
+    ; solver_env =
+        inherit_field solver_env ~f:(fun { Lock_dir.solver_env; _ } -> solver_env)
+    ; unset_solver_vars =
+        inherit_field unset_solver_vars ~f:(fun { Lock_dir.unset_solver_vars; _ } ->
+          unset_solver_vars)
+    ; repositories =
+        (let standard =
+           match inherited with
+           | Some { Lock_dir.repositories; _ } -> repositories
+           | None -> default_repositories_with_loc
+         in
+         match repositories with
+         | None -> standard
+         | Some ordered_set -> repositories_of_ordered_set ~standard ordered_set)
+    ; solve_for_platforms =
+        (match solve_for_platforms with
+         | Some solve_for_platforms -> solve_for_platforms
+         | None ->
+           (match inherited with
+            | Some { Lock_dir.solve_for_platforms; _ } -> solve_for_platforms
+            | None -> Solver_env.popular_platform_envs))
+    }
+  ;;
+
+  let decode ~dir =
+    fields
+      (let+ loc = loc
+       and+ packages = field "packages" (repeat1 Package_entry.decode)
+       and+ inherit_lock_dir =
+         field_o
+           "inherit_lock_dir"
+           (let+ loc = loc
+            and+ path = maybe string in
+            loc, Path.Source.relative dir (Option.value path ~default:"dune.lock"))
+       and+ solver_settings = Solver_settings.decode_fields
+       and+ constraints =
+         field ~default:[] "constraints" (repeat Dune_lang.Package_dependency.decode)
+       and+ pins = field ~default:[] "pins" (repeat (located string))
+       and+ skip_compiler_match = field_b "skip_compiler_match" in
+       check_no_dupe_packages packages;
+       fun ~lock_dirs ->
+         { loc
+         ; packages
+         ; inherit_lock_dir
+         ; solve = resolve_solve ~lock_dirs ~inherit_lock_dir ~solver_settings
+         ; constraints
+         ; pins
+         ; skip_compiler_match
+         })
   ;;
 end
 
@@ -771,11 +1112,12 @@ type t =
   ; config : Dune_config.t
   ; repos : Dune_pkg.Pkg_workspace.Repository.t list
   ; lock_dirs : Lock_dir.t list
+  ; tools : Tool.t list
   ; dir : Path.Source.t
   ; pins : Pin_stanza.Workspace.t
   }
 
-let to_dyn { merlin_context; contexts; env; config; repos; lock_dirs; pins; dir } =
+let to_dyn { merlin_context; contexts; env; config; repos; lock_dirs; tools; pins; dir } =
   let open Dyn in
   record
     [ "merlin_context", option Context_name.to_dyn merlin_context
@@ -784,23 +1126,25 @@ let to_dyn { merlin_context; contexts; env; config; repos; lock_dirs; pins; dir 
     ; "config", Dune_config.to_dyn config
     ; "repos", list Repository.to_dyn repos
     ; "solver", (list Lock_dir.to_dyn) lock_dirs
+    ; "tools", (list Tool.to_dyn) tools
     ; "dir", Path.Source.to_dyn dir
     ; "pins", Pin_stanza.Workspace.to_dyn pins
     ]
 ;;
 
-let equal { merlin_context; contexts; env; config; repos; lock_dirs; dir; pins } w =
+let equal { merlin_context; contexts; env; config; repos; lock_dirs; tools; dir; pins } w =
   Option.equal Context_name.equal merlin_context w.merlin_context
   && List.equal Context.equal contexts w.contexts
   && Option.equal Dune_env.equal env w.env
   && Dune_config.equal config w.config
   && List.equal Repository.equal repos w.repos
   && List.equal Lock_dir.equal lock_dirs w.lock_dirs
+  && List.equal Tool.equal tools w.tools
   && Path.Source.equal dir w.dir
   && Pin_stanza.Workspace.equal pins w.pins
 ;;
 
-let hash { merlin_context; contexts; env; config; repos; lock_dirs; dir; pins } =
+let hash { merlin_context; contexts; env; config; repos; lock_dirs; tools; dir; pins } =
   Poly.hash
     ( Option.hash Context_name.hash merlin_context
     , List.hash Context.hash contexts
@@ -808,6 +1152,7 @@ let hash { merlin_context; contexts; env; config; repos; lock_dirs; dir; pins } 
     , Dune_config.hash config
     , List.hash Repository.hash repos
     , List.hash Lock_dir.hash lock_dirs
+    , List.hash Tool.hash tools
     , Path.Source.hash dir
     , Pin_stanza.Workspace.hash pins )
 ;;
@@ -1022,6 +1367,33 @@ let check_lock_dirs_no_dupes lock_dirs =
       ]
 ;;
 
+let check_tools_no_dupe_binaries tools =
+  match
+    List.concat_map tools ~f:(fun { Tool.packages; _ } ->
+      List.concat_map packages ~f:Tool.Package_entry.exposed_binaries)
+    |> String.Map.of_list_map ~f:(fun (loc, name) -> name, loc)
+  with
+  | Ok _ -> ()
+  | Error (name, (loc1, _), (loc2, _)) ->
+    User_error.raise
+      ~loc:loc2
+      [ Pp.textf "Tool binary %S is defined multiple times:" name
+      ; Pp.enumerate ~f:Loc.pp_file_colon_line [ loc1; loc2 ]
+      ]
+;;
+
+let check_tool_pins pins tools =
+  let known_pins = Pin_stanza.Workspace.map pins in
+  List.iter tools ~f:(fun { Tool.pins; _ } ->
+    List.iter pins ~f:(fun (loc, name) ->
+      if not (String.Map.mem known_pins name)
+      then
+        User_error.raise
+          ~loc
+          [ Pp.textf "Unknown pin %S." name ]
+          ~hints:[ Pp.text "Pins must be defined with a (pin ...) stanza in this file." ]))
+;;
+
 let step1 ~(lang : Lang.Instance.t) clflags =
   let { Clflags.x
       ; profile = cl_profile
@@ -1081,6 +1453,8 @@ let step1 ~(lang : Lang.Instance.t) clflags =
          ~default:(lazy []))
   and+ config_from_workspace_file = Dune_config.decode_fields_of_workspace_file
   and+ lock_dirs = multi_field "lock_dir" (Lock_dir.decode ~dir)
+  and+ tools =
+    multi_field "tool" (Dune_lang.Syntax.since Stanza.syntax (3, 24) >>> Tool.decode ~dir)
   and+ pins = Pin_stanza.Workspace.decode in
   let+ contexts = multi_field "context" (lazy_ Context.decode) in
   let config =
@@ -1154,12 +1528,16 @@ let step1 ~(lang : Lang.Instance.t) clflags =
            else None
        in
        check_lock_dirs_no_dupes lock_dirs;
+       let tools = List.map tools ~f:(fun tool -> tool ~lock_dirs) in
+       check_tools_no_dupe_binaries tools;
+       check_tool_pins pins tools;
        { merlin_context
        ; contexts = top_sort (List.rev contexts)
        ; env
        ; config
        ; repos
        ; lock_dirs
+       ; tools
        ; dir
        ; pins
        })
@@ -1195,6 +1573,7 @@ let default clflags =
   ; config
   ; repos = default_repositories
   ; lock_dirs = []
+  ; tools = []
   ; dir = Path.Source.root
   ; pins = Pin_stanza.Workspace.empty
   }
