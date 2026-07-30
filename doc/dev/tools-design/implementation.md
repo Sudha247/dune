@@ -373,19 +373,31 @@ dune tools list                                    List all locked tools and ver
 dune tools add                                     Lock all tools from (tool) stanzas
 dune tools add <pkg>[.<version>] ...               Lock specific tool(s)
 
-dune tools run <pkg>[.<version>] [--bin <name>] [-- <args>]
+dune tools update                                  Update the version of the tool.
+
+dune tools run <pkg> [--bin <name>] [-- <args>]
                                                    Run a tool, passing arguments after --
 
 dune tools path                                    Print path to the managed binary directory (or directories)
-dune tools path <pkg>[.<version>] [--bin <name>]   Print path to tool executable
+dune tools path <pkg> [--bin <name>]               Print path to tool executable
 
-dune tools remove <pkg>[.<version>] ...            Remove a tool's lock directory
+dune tools remove <pkg> ...                        Remove a tool's lock directory
 ```
 
 The `--bin` flag is required when a package provides multiple binaries and no
 `(executable ...)` is specified in the `(tool)` stanza.
 
-CR-soon Alizter: Edge cases for `dune tools add`:
+#### Edge Cases
+
+- Package doesn't exist in repository: error message saying package not found, check the name.
+- Network unavailable: error message. Offline mode could help here, but it's also useful at the package management level, and is not specific to tools.
+- Solver fails: same as package management?
+- Build fails: error message, and cleanup partial state.
+- Interrupted mid-install: Ask user whether to clean up. By default cleanup.
+- Already locked at some version: Print a message saying the tool already exists. Essentially a no-op. Since the tools exist independently and don't influence each others' solves, re-solving would possibly give same solve. If a user wants to update the version, they should do so explicitly.
+- Already locked at different version: Update to new version.
+
+<!-- CR-soon Alizter: Edge cases for `dune tools add`:
 
 - Package doesn't exist in repository: error message?
 - Network unavailable: error message, offline mode?
@@ -393,7 +405,7 @@ CR-soon Alizter: Edge cases for `dune tools add`:
 - Build fails: partial state cleanup?
 - Interrupted mid-install: cleanup, or resume on next run?
 - Already locked at same version: no-op, or re-solve?
-- Already locked at different version: add second version, or replace?
+- Already locked at different version: add second version, or replace? -->
 
 CR-soon Alizter: The prototype has `--allow-not-installed` flag for
 `dune tools path`. Document this flag and its use case (editor integration).
