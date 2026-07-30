@@ -375,6 +375,8 @@ dune tools add <pkg>[.<version>] ...               Lock specific tool(s)
 
 dune tools update                                  Update the version of the tool.
 
+dune tools build?                                  Build all tools
+
 dune tools run <pkg> [--bin <name>] [-- <args>]
                                                    Run a tool, passing arguments after --
 
@@ -387,47 +389,65 @@ dune tools remove <pkg> ...                        Remove a tool's lock director
 The `--bin` flag is required when a package provides multiple binaries and no
 `(executable ...)` is specified in the `(tool)` stanza.
 
+CR Sudha247: Is `add` the correct verb here? We are only locking tools not
+building them. Should we switch to calling them `dune tools lock` analogous to
+`dune pkg lock`?
+
+CR Sudha247: Should `dune tools run` use the binary name directly, and offer
+disambigution if multiple binaries of same name exist? It seems like an overhead
+having to specify both package and binary name when you want to run a tool.
+
+### Relationship with dune-workspace
+
+`(tool)` stanzas in `dune-workspace` are the single source of truth for which
+tools a workspace uses. The `dune tools` commands that change tool state do so
+by editing `dune-workspace`; they don't have a record of their own. Lock
+directories under `_build/.tools.lock/` are derived state, reproducible from the
+stanzas.
+
+| Command | Effect on `dune-workspace` |
+| ------- | -------------------------- |
+| `dune tools add <pkg>` | Adds a `(tool)` stanza, filling only the fields implied by the CLI arguments |
+| `dune tools add` (no args) | None — reads existing stanzas and locks each |
+| `dune tools update <pkg>` | Re-solves within the stanza's existing constraint; rewrites the version only if the CLI specifies a new one |
+| `dune tools remove <pkg>` | Removes the stanza and its lock directory |
+| `dune tools run` / `path` / `list` | None |
+
+Editing `dune-workspace` requires a formatting- and comment-preserving
+round-trip [#13758](https://github.com/ocaml/dune/pull/13758). If no
+`dune-workspace` exists, `dune tools add` creates one containing `(lang dune
+<current>)` and the new stanza.
+
 #### Edge Cases
 
-- Package doesn't exist in repository: error message saying package not found, check the name.
-- Network unavailable: error message. Offline mode could help here, but it's also useful at the package management level, and is not specific to tools.
-- Solver fails: same as package management?
-- Build fails: error message, and cleanup partial state.
-- Interrupted mid-install: Ask user whether to clean up. By default cleanup.
-- Already locked at some version: Print a message saying the tool already exists. Essentially a no-op. Since the tools exist independently and don't influence each others' solves, re-solving would possibly give same solve. If a user wants to update the version, they should do so explicitly.
-- Already locked at different version: Update to new version.
+  | Edge case | Behavior |
+  | --------- | -------- |
+  | Package doesn't exist in repository | Error: package not found, check the name. |
+  | Network unavailable | Error. Offline mode could help, but it's also useful at the package management level and isn't specific to tools. |
+  | Solver fails | Same as package management? |
+  | Build fails | Error, and clean up partial state. |
+  | Interrupted mid-install | Ask the user whether to clean up; clean up by default. |
+  | Already locked at same version | No-op with a message saying the tool already exists. Tools are solved independently and don't influence each other's solves, so re-solving would
+  likely give the same result. Updating a version must be explicit. |
+  | Already locked at different version | Update to the new version. |
 
-<!-- CR-soon Alizter: Edge cases for `dune tools add`:
-
-- Package doesn't exist in repository: error message?
-- Network unavailable: error message, offline mode?
-- Solver fails (unsatisfiable constraints): error with diagnostics?
-- Build fails: partial state cleanup?
-- Interrupted mid-install: cleanup, or resume on next run?
-- Already locked at same version: no-op, or re-solve?
-- Already locked at different version: add second version, or replace? -->
+#### `dune tools path`
 
 CR-soon Alizter: The prototype has `--allow-not-installed` flag for
 `dune tools path`. Document this flag and its use case (editor integration).
 
 CR-soon Alizter: `dune tools path` behavior is underspecified:
 
-- Should `path` trigger download and build if not yet built? Or only return path
-  if already built, erroring otherwise?
 - If `--bin` is specified, can we compute the path without building (since path
   is deterministic from package/version/binary name)?
 - If package has multiple binaries and no `--bin`: error immediately, or
   download and build first to discover available binaries?
 - Tool not locked: error, or fall back to `which`?
-- How does `path` interact with `(tool)` stanzas vs CLI-added tools? Same
-  resolution as `run`?
 
-CR-soon Sudha247: We now have two sources for the current state of what tools
-exist - one in the declarative config within dune-workspace, and one in the
-state of tools installed and their lockdirs. Ideally we should just have a
-single source of truth for what tools should be installed. We can do this by
-making the CLI edit dune-workspace rather than operating on its own. A
-pre-requisite for this is: https://github.com/ocaml/dune/pull/13758.
+| PATH behaviour | Explanation |
+| -------------- | ----------- |
+| Should `dune tools path` trigger download? | **No.** Path should remain a pure query, emitting a warning if a tool is not installed |
+| Tool not locked | Fall back to `which` - this is useful for editors. The current dev tools has a similar mechanism which was requested by editros folks.|
 
 CR-someday Alizter: Consider a single bin directory with symlinks to all tool
 executables (like npm's `node_modules/.bin/`). Instead of per-tool paths, have
@@ -511,19 +531,6 @@ CR-soon Alizter: If we do integrate, design questions:
 - What if opam file says `ocamlformat` but `.ocamlformat` says `version=0.26.2`?
 - How does this interact with `(tool)` stanzas that specify the same package?
 
-CR-soon Alizter: The prototype requires at least one package argument. The
-no-argument batch mode (lock all from stanzas) is not yet implemented.
-
-#### Open question: version separator
-
-The current prototype uses `.` as the version separator (`pkg.version`), aligned
-with opam conventions. However, `@` is common in other ecosystems:
-
-- **npm/npx**: `npx cowsay@1.5.0`
-- **cargo**: `cargo install ripgrep@14.0.0`
-
-Opam package names cannot contain dots (allowed: `[a-zA-Z0-9_+-]+`), so `.` is
-unambiguous. The choice is primarily about familiarity vs ecosystem consistency.
 
 #### Open question: `add` vs `install` naming
 
