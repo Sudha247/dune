@@ -127,80 +127,109 @@ uses the same dependency syntax as `(depends ...)` for the package field.
 
 ```lisp
 (tool
-  (package <dep>)                       ; required: the tool package
-  (executables <name> ...)                 ; optional: binaries to expose
-  (inherit_lock_dir [<path>])           ; optional: inherit solve env from a lock_dir stanza
+  (packages <dep>|(<dep> exposing <exe> ...) ...) ; required: package(s), co-solved as one unit;
+                                            ;   `as` selects the executables to expose
+  (compiler <:locked|:system|:any>)     ; optional: compiler matching policy
+  (inherit_context [<context-name>])    ; optional: inherit solve env from a context's lock dir;
+                                        ;   bare = the context in use
   (repositories <repo-name>|:inherit ...)   ; optional: repositories to solve from
   (solver_env <settings>)               ; optional: solver variable assignments
-  (unset_solver_vars <name>|:inherit ...)   ; optional: solver variables to leave  undefined
+  (unset_solver_vars <name>|:inherit ...)   ; optional: solver variables to leave undefined
   (version_preference <newest|oldest>)  ; optional
   (solve_for_platforms <env>|:inherit ...)  ; optional: platforms to solve for
   (constraints <dep>|:inherit ...)      ; optional: constraints on each solve
-  (pins <pin-name>|:inherit ...)        ; optional: pins (names of (pin ...) stanzas)
-  (skip_compiler_match))                ; optional: disable compiler matching
+  (depopts <dep>|:inherit ...)          ; optional: optional dependencies to be included
+  (pins <pin-name>|:inherit ...))       ; optional: pins (names of (pin ...) stanzas)
 ```
 
-CR-soon Sudha247: Can we express skip_compiler_match within the constraints field somehow?
+CR: multiple tools in the same stanza. Should they be installed in separate lock directories or same lock directory for a stanza?
 
-CR-soon Sudha247: do we need a `depopts` field?
+#### Edge cases for stanza parsing
 
-CR-soon Alizter: Edge cases for stanza parsing:
+| Case | Behavior |
+| ---- | -------- |
+| Invalid package name in `(package ...)` | Error when the field is parsed, quoting the name and hinting a valid spelling. Uses the opam-compatible spelling, not the lax one
+`(depends ...)` accepts. |
+| `(repositories ...)` or `(pins ...)` names something undefined | Error once the whole workspace is parsed, before any solve. Not possible in the field decoder itself, since
+those stanzas may appear later in the file. |
+| Two tools exposing the same executable name | Open: keyed on produced binaries, not declarations, so the duplicate package check above misses it. |
 
-- Duplicate stanzas for same package with different constraints: error, or
-  merge?
-- Invalid package name syntax: error message?
-- Stanza references non-existent repository: when to error (parse time vs solve
-  time)?
-
-CR-soon Sudha247: Capture constraints here? Related issue:
-[dune#12777](https://github.com/ocaml/dune/issues/12777)
 
 #### Semantics of `:inherit`
 
+The inheritance source is the lock dir of the inherited context — the context
+in use for bare `(inherit_context)`, or the named one. A context without a
+`(lock_dir ...)` field is tied to `dune.lock`; if no `(lock_dir)` stanza
+customizes that path, the inherited values are simply dune's defaults.
+
   - Valid only in list-valued fields (repositories, unset_solver_vars,
-  solve_for_platforms, constraints, pins), and expands in place to the
-  corresponding field's value from the stanza named by `inherit_lock_dir`, e.g.
-  (repositories :inherit my-repo) means the inherited repositories followed by
-  my-repo.
-  - Omitting a field entirely means fully inherit it (when inherit_lock_dir is
-  present); writing the field without :inherit means fully override it.
-  - Using :inherit without inherit_lock_dir is an error.
-  - solver_env and version_preference are scalar-ish, so they follow the
-  omit-to-inherit / write-to-override rule with no :inherit keyword.
-  - Having an empty field with an existing (inherit_lock_dir) means omit that
-    particular field
+    solve_for_platforms, constraints, pins), and expands in place to the
+    corresponding field's value from the inherited context's lock dir, e.g.
+    `(repositories :inherit my-repo)` means the inherited repositories followed
+    by my-repo.
+  - Omitting a field entirely means fully inherit it (when `inherit_context` is
+    present); writing the field without `:inherit` means fully override it.
+  - Using `:inherit` without `inherit_context` is an error.
+  - `solver_env` and `version_preference` are scalar-ish, so they follow the
+    omit-to-inherit / write-to-override rule with no `:inherit` keyword.
+  - Writing a field as empty, with `inherit_context` present, means suppress it
+    entirely: neither inherited nor defaulted.
+  - With bare `(inherit_context)`, the source is the context each solve is for,
+    so the same `:inherit` can splice different values in different contexts —
+    that is the point of following.
 
 #### Fields
 
-- **`(package <dep>)`** (required): The opam package providing the tool. Accepts
-  either a plain package name or a name with version constraint:
-  - Plain: `ocamlformat`
-  - With constraint: `(ocamlformat (= 0.26.2))`
-  - Version operators: `=`, `<>`, `<`, `>`, `<=`, `>=`
-  - Conjunctions: `(and (>= 0.25.0) (< 0.27.0))`
+- **`(packages <dep>|(<dep> exposing <exe> ...) ...)`** (required): The opam
+    packages providing the tools. All packages in a stanza are solved together
+    and share one lock directory. Each entry accepts the same syntax as
+    `(depends ...)`:
+    - Plain: `ocamlformat`
+    - With constraint: `(ocamlformat (= 0.26.2))`
+    - Version operators: `=`, `<>`, `<`, `>`, `<=`, `>=`
+    - Conjunctions: `(and (>= 0.25.0) (< 0.27.0))`
+
+    `exposing` selects the executables to expose from a package, for example
+    `(menhir exposing menhir menhirSdk)`. Without `exposing` a package exposes
+    the executable matching its name.
 
 - **`(executables <name>)`** (optional): The binary to run. Defaults to the
   package name. If the package installs multiple binaries and no binary matches
   the package name, omitting this field is an error.
 
-- **`(inherit_lock_dir [<path>])`** (optional): Inherit the solve
-    environment from the `(lock_dir)` stanza whose path is `<path>`
-    (defaulting to `dune.lock`, the default lock directory). The inheritable
-    fields are `repositories`, `solver_env`, `unset_solver_vars`,
-    `version_preference`, `solve_for_platforms`, `constraints`, and `pins`.
+- **`(compiler <:locked|:system|:any>)`** (optional): Compiler matching
+    policy for the solve. `:locked` uses the compiler of the inherited
+    context's lock dir, `:system` the opam switch or PATH OCaml, `:any` leaves
+    it unconstrained for tools with no ABI coupling such as formatters.
+    Omitted means the first available of `:locked`, `:system`, `:any`.
+
+- **`(inherit_context [<context-name>])`** (optional): Inherit the solve
+    environment from the lock dir that context is tied to. Bare
+    `(inherit_context)` follows the context the tool is solved for, so the
+    source moves with the context; naming a context pins the source regardless
+    of which context is in use. The inheritable fields are `repositories`,
+    `solver_env`, `unset_solver_vars`, `version_preference`,
+    `solve_for_platforms`, `constraints`, and `pins`; `depopts` is not
+    inheritable.
 
     When this field is present, each inheritable field follows one rule:
 
-    | You write                | Meaning                                      |
-    |--------------------------|----------------------------------------------|
-    | *(field omitted)*        | fully inherit the lock_dir's value           |
-    | `(field <values>)`       | fully override; inheritance suppressed       |
-    | `(field :inherit ...)`   | splice the lock_dir's value in at that position |
-    | `(field :standard ...)`  | splice dune's built-in default in            |
+      | You write                | Meaning                                      |
+      |--------------------------|----------------------------------------------|
+      | *(field omitted)*        | fully inherit the lock dir's value           |
+      | `(field <values>)`       | fully override; inheritance suppressed       |
+      | `(field :inherit ...)`   | splice the lock dir's value in at that position |
+      | `(field :standard ...)`  | splice dune's built-in default in            |
 
     `:inherit` is only valid in list-valued fields, and only when
-    `inherit_lock_dir` is present; using it without is an error. Without
-    `inherit_lock_dir`, omitted fields take Dune's ordinary defaults.
+    `inherit_context` is present; using it without is an error. Without
+    `inherit_context`, omitted fields take Dune's ordinary defaults.
+
+    Contexts are the only inheritance source: a lock dir no context is tied
+    to cannot be inherited from. Write the fields directly instead, and do
+    not create a context just to hold a tool solve env, since every dune
+    build sets up all contexts. A context without a `(lock_dir ...)` field
+    is tied to `dune.lock`.
 
 - **`(repositories <repo-name>|:inherit|:standard ...)`** (optional):
     Repositories to solve from, as an ordered set. `:standard` is the default
@@ -230,19 +259,21 @@ CR-soon Sudha247: Capture constraints here? Related issue:
     project's constraints is safe: irrelevant ones are no-ops, and shared
     transitive dependencies stay consistent with the project.
 
+- **`(depopts <dep> ...)`** (optional): Extra packages solved into the same
+    solution to enable optional features of the tools, never exposed as
+    binaries. Accepts `(depends ...)` syntax unlike the name-only lock_dir
+    field, and is not inheritable since the project's depopts are unrelated to
+    the tool's.
+
 - **`(pins <pin-name>|:inherit ...)`** (optional): Names of `(pin ...)`
     stanzas to apply to this tool's solve.
 
-- **`(skip_compiler_match)`** (optional): When present, disables the default
-  compiler matching behavior. Use this for tools that don't need compiler
-  compatibility (e.g., formatters that only parse source text).
 
 CR-soon Alizter: The `(repositories)` field is parsed but verify that the
 restriction is actually applied during solving in the prototype.
 
 CR-soon Alizter: The prototype uses `compiler_compatible` (opt-in) but this doc
 says `skip_compiler_match` (opt-out). Reconcile naming and semantics.
-
 
 #### Compiler matching
 
@@ -295,7 +326,7 @@ CR-soon Alizter: Edge cases for compiler matching:
 
 ;; Tool that doesn't need compiler matching
 (tool
- (package ocamlformat)
+ (packages (ocamlformat as ocamlformat) ocamllsp odoc)
  (skip_compiler_match))
 
 ;; Tool pinned to a fork
@@ -310,7 +341,7 @@ CR-soon Alizter: Edge cases for compiler matching:
 ;; Inherit from lock_dir
 (tool
    (package ocamlformat)
-   (inherit_lock_dir))
+   (inherit_lock_dir dune.lock))
 
 ;; More involved menhir
 
