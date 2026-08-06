@@ -787,6 +787,32 @@ module Context = struct
   ;;
 end
 
+module Tool = struct
+  type t =
+    { loc : Loc.t
+    ; name : Package.Name.t
+    }
+
+  let repr =
+    Repr.record
+      "tool"
+      [ Repr.field "loc" Loc.repr ~get:(fun t -> t.loc)
+      ; Repr.field "name" (Repr.abstract Package.Name.to_dyn) ~get:(fun t -> t.name)
+      ]
+  ;;
+
+  let to_dyn = Repr.to_dyn repr
+  let hash { loc; name } = Poly.hash (loc, name)
+  let equal { loc; name } t = Loc.equal loc t.loc && Package.Name.equal name t.name
+
+  let decode =
+    fields
+      (let+ loc = loc
+       and+ name = field "name" Package.Name.decode in
+       { loc; name })
+  ;;
+end
+
 type t =
   { merlin_context : Context_name.t option
   ; contexts : Context.t list
@@ -796,6 +822,7 @@ type t =
   ; lock_dirs : Lock_dir.t list
   ; dir : Path.Source.t
   ; pins : Pin_stanza.Workspace.t
+  ; tools : Tool.t list
   }
 
 let repr =
@@ -815,12 +842,13 @@ let repr =
     ; Repr.field "solver" (Repr.list Lock_dir.repr) ~get:(fun t -> t.lock_dirs)
     ; Repr.field "dir" Path.Source.repr ~get:(fun t -> t.dir)
     ; Repr.field "pins" (Repr.abstract Pin_stanza.Workspace.to_dyn) ~get:(fun t -> t.pins)
+    ; Repr.field "tools" (Repr.list Tool.repr) ~get:(fun t -> t.tools)
     ]
 ;;
 
 let to_dyn = Repr.to_dyn repr
 
-let equal { merlin_context; contexts; env; config; repos; lock_dirs; dir; pins } w =
+let equal { merlin_context; contexts; env; config; repos; lock_dirs; dir; pins; tools } w =
   Option.equal Context_name.equal merlin_context w.merlin_context
   && List.equal Context.equal contexts w.contexts
   && Option.equal Dune_env.equal env w.env
@@ -829,9 +857,10 @@ let equal { merlin_context; contexts; env; config; repos; lock_dirs; dir; pins }
   && List.equal Lock_dir.equal lock_dirs w.lock_dirs
   && Path.Source.equal dir w.dir
   && Pin_stanza.Workspace.equal pins w.pins
+  && List.equal Tool.equal tools w.tools
 ;;
 
-let hash { merlin_context; contexts; env; config; repos; lock_dirs; dir; pins } =
+let hash { merlin_context; contexts; env; config; repos; lock_dirs; dir; pins; tools } =
   Poly.hash
     ( Option.hash Context_name.hash merlin_context
     , List.hash Context.hash contexts
@@ -840,7 +869,8 @@ let hash { merlin_context; contexts; env; config; repos; lock_dirs; dir; pins } 
     , List.hash Repository.hash repos
     , List.hash Lock_dir.hash lock_dirs
     , Path.Source.hash dir
-    , Pin_stanza.Workspace.hash pins )
+    , Pin_stanza.Workspace.hash pins
+    , List.hash Tool.hash tools )
 ;;
 
 let pkg_enabled { config; lock_dirs; _ } =
@@ -1078,6 +1108,19 @@ let check_lock_dirs_no_dupes lock_dirs =
       ]
 ;;
 
+let check_tools_no_dupes tools =
+  match
+    Package.Name.Map.of_list_map tools ~f:(fun ({ Tool.name; _ } as tool) -> name, tool)
+  with
+  | Ok _ -> ()
+  | Error (name, { Tool.loc = loc1; _ }, { Tool.loc = loc2; _ }) ->
+    User_error.raise
+      ~loc:loc2
+      [ Pp.textf "Tool %S is defined multiple times:" (Package.Name.to_string name)
+      ; Pp.enumerate ~f:Loc.pp_file_colon_line [ loc1; loc2 ]
+      ]
+;;
+
 let step1 ~(lang : Lang.Instance.t) clflags =
   let { Clflags.x
       ; profile = cl_profile
@@ -1137,7 +1180,10 @@ let step1 ~(lang : Lang.Instance.t) clflags =
          ~default:(lazy []))
   and+ config_from_workspace_file = Dune_config.decode_fields_of_workspace_file
   and+ lock_dirs = multi_field "lock_dir" (Lock_dir.decode ~dir)
-  and+ pins = Pin_stanza.Workspace.decode in
+  and+ pins = Pin_stanza.Workspace.decode
+  and+ tools =
+    multi_field "tool" (Dune_lang.Syntax.since Stanza.syntax (3, 25) >>> Tool.decode)
+  in
   let+ contexts = multi_field "context" (lazy_ Context.decode) in
   let config =
     create_final_config
@@ -1210,6 +1256,7 @@ let step1 ~(lang : Lang.Instance.t) clflags =
            else None
        in
        check_lock_dirs_no_dupes lock_dirs;
+       check_tools_no_dupes tools;
        { merlin_context
        ; contexts = top_sort (List.rev contexts)
        ; env
@@ -1218,6 +1265,7 @@ let step1 ~(lang : Lang.Instance.t) clflags =
        ; lock_dirs
        ; dir
        ; pins
+       ; tools
        })
   in
   { Step1.t; config }
@@ -1253,6 +1301,7 @@ let default clflags =
   ; lock_dirs = []
   ; dir = Path.Source.root
   ; pins = Pin_stanza.Workspace.empty
+  ; tools = []
   }
 ;;
 

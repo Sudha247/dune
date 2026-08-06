@@ -4,19 +4,13 @@ Tests for the (tool ...) stanza in dune-workspace.
   > (lang dune 3.25)
   > EOF
 
-A tool stanza declaring a single tool by name. This is currently rejected;
-once the stanza is implemented this should build silently.
+A tool stanza declaring a single tool by name:
 
   $ cat > dune-workspace <<EOF
   > (lang dune 3.25)
   > (tool (name ocamlfind))
   > EOF
   $ dune build
-  File "dune-workspace", line 2, characters 1-5:
-  2 | (tool (name ocamlfind))
-       ^^^^
-  Error: Unknown field "tool"
-  [1]
 
 The stanza is versioned and unavailable in older versions of the dune
 language:
@@ -26,10 +20,11 @@ language:
   > (tool (name ocamlfind))
   > EOF
   $ dune build
-  File "dune-workspace", line 2, characters 1-5:
+  File "dune-workspace", line 2, characters 0-23:
   2 | (tool (name ocamlfind))
-       ^^^^
-  Error: Unknown field "tool"
+      ^^^^^^^^^^^^^^^^^^^^^^^
+  Error: 'tool' is only available since version 3.25 of the dune language.
+  Please update your dune-project file to have (lang dune 3.25).
   [1]
 
 Declaring the same tool twice is an error:
@@ -40,8 +35,10 @@ Declaring the same tool twice is an error:
   > (tool (name ocamlfind))
   > EOF
   $ dune build
-  File "dune-workspace", line 3, characters 1-5:
+  File "dune-workspace", line 3, characters 0-23:
   3 | (tool (name ocamlfind))
-       ^^^^
-  Error: Unknown field "tool"
+      ^^^^^^^^^^^^^^^^^^^^^^^
+  Error: Tool "ocamlfind" is defined multiple times:
+  - dune-workspace:2
+  - dune-workspace:3
   [1]

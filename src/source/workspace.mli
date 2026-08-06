@@ -24,6 +24,18 @@ module Lock_dir : sig
   val to_dyn : t -> Dyn.t
 end
 
+(** A tool declared in the workspace, identified by the name of the
+    package providing it *)
+module Tool : sig
+  type t =
+    { loc : Loc.t
+    ; name : Package.Name.t
+    }
+
+  val equal : t -> t -> bool
+  val to_dyn : t -> Dyn.t
+end
+
 module Lock_dir_selection : sig
   (** A DSL for selecting a lockdir either by literally naming it or using a
       cond expression to select a lockdir based on blangs *)
@@ -140,6 +152,7 @@ type t = private
   ; lock_dirs : Lock_dir.t list
   ; dir : Path.Source.t
   ; pins : Pin_stanza.Workspace.t
+  ; tools : Tool.t list
   }
 
 val equal : t -> t -> bool
