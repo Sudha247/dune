@@ -20,25 +20,6 @@ let make_local_package_wrapping_tool name : Dune_pkg.Local_package.t =
   }
 ;;
 
-let check_tool_is_declared name =
-  let open Memo.O in
-  let+ workspace = Workspace.workspace () in
-  let declared =
-    List.exists workspace.tools ~f:(fun (tool : Workspace.Tool.t) ->
-      Package_name.equal tool.name name)
-  in
-  if not declared
-  then
-    User_error.raise
-      [ Pp.textf "Tool %S is not declared in the workspace." (Package_name.to_string name)
-      ]
-      ~hints:
-        [ Pp.textf
-            "Add (tool (name %s)) to your dune-workspace file."
-            (Package_name.to_string name)
-        ]
-;;
-
 let solve name =
   let open Memo.O in
   let* solver_env_from_current_system =
@@ -68,7 +49,7 @@ let solve name =
 
 let lock_tool name =
   let open Memo.O in
-  let* () = check_tool_is_declared name in
+  let* () = Dune_rules.Pkg_tool.check_declared name in
   let lock_dir = Dune_pkg.Tool.external_lock_dir name in
   Dune_engine.Fs_memo.dir_exists (Path.Outside_build_dir.External lock_dir)
   >>= function

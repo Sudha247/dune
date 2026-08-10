@@ -41,19 +41,14 @@ Lock the tool. The solution contains the tool and its dependency:
 Build and run the tool:
 
   $ dune build _build/_private/default/.tools/foo/target/bin/foo
-  Error: Dependency cycle between:
-     Computing closure for package "foo"
-  [1]
   $ ./_build/_private/default/.tools/foo/target/bin/foo
-  ./_build/_private/default/.tools/foo/target/bin/foo: No such file or directory
-  [127]
+  hello from foo
 
-The tool's dependency was built inside the tool's own directory rather
-than the shared project package pool:
+The tool's dependency was built in the tool's own dependency
+directory rather than the shared project package pool:
 
-  $ ls _build/_private/default/.tools/foo/.deps | sed 's/\..*//'
-  ls: cannot access '_build/_private/default/.tools/foo/.deps': No such file or directory
-  [2]
+  $ ls _build/_private/default/.tools/.deps/foo | sed 's/\..*//'
+  bar
   $ ls _build/_private/default/.pkg
   ls: cannot access '_build/_private/default/.pkg': No such file or directory
   [2]

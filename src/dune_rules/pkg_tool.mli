@@ -10,6 +10,10 @@ val install_path_base_dir_name : Filename.t
     the given tool *)
 val universe_install_path : Package.Name.t -> Path.Build.t
 
+(** The directory containing the builds of the given tool's
+    dependencies, keyed by package digest *)
+val deps_install_path_base : Package.Name.t -> Path.Build.t
+
 (** The path to the executable for running the given tool *)
 val exe_path : Package.Name.t -> Path.Build.t
 
@@ -21,3 +25,7 @@ val build_lock_dir : Package.Name.t -> Path.Build.t
 (** Loads the lock dir of the given tool, making sure the copy rules
     populating it have run *)
 val lock_dir : Package.Name.t -> Dune_pkg.Lock_dir.t Memo.t
+
+(** Raises a user error if the given tool is not declared with a [tool]
+    stanza in the workspace *)
+val check_declared : Package.Name.t -> unit Memo.t

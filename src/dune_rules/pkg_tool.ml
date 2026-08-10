@@ -17,6 +17,17 @@ let universe_install_path name =
   Path.Build.relative (Lazy.force install_path_base) (Package.Name.to_string name)
 ;;
 
+(* The dependencies of a tool live next to the tool universes rather
+   than inside them: expanding a tool's build command requires its
+   dependencies to be built, so rules for the dependencies cannot live
+   below the tool's own directory. The leading dot avoids clashing with
+   tool package names. *)
+let deps_install_path_base name =
+  Path.Build.L.relative
+    (Lazy.force install_path_base)
+    [ ".deps"; Package.Name.to_string name ]
+;;
+
 let exe_path name =
   Path.Build.L.relative
     (universe_install_path name)
@@ -31,4 +42,18 @@ let lock_dir name =
   (* Ensure the internal lock dir is built so copy rules run *)
   let* () = Build_system.build_dir (Path.build (build_lock_dir name)) in
   Lock_dir.load_exn (Path.external_ (Tool.external_lock_dir name))
+;;
+
+let check_declared name =
+  let+ workspace = Workspace.workspace () in
+  let declared =
+    List.exists workspace.tools ~f:(fun (tool : Workspace.Tool.t) ->
+      Package.Name.equal tool.name name)
+  in
+  if not declared
+  then (
+    let name = Package.Name.to_string name in
+    User_error.raise
+      [ Pp.textf "Tool %S is not declared in the workspace." name ]
+      ~hints:[ Pp.textf "Add (tool (name %s)) to your dune-workspace file." name ])
 ;;

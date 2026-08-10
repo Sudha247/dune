@@ -262,7 +262,17 @@ module Paths = struct
           Private_context.t.build_dir
           [ Context_name.to_string ctx; ".pkg"; Pkg_digest.to_string pkg_digest ]
       | Dev_tool dev_tool -> Pkg_dev_tool.universe_install_path dev_tool
-      | Tool name -> Pkg_tool.universe_install_path name
+      | Tool name ->
+        (* The tool package itself installs at the root of the tool's
+           universe; its dependencies are built per tool in sibling
+           digest-keyed directories, keeping tools self-contained. The
+           path components must match the patterns in [setup_rules]. *)
+        if Package.Name.equal pkg_digest.name name
+        then Pkg_tool.universe_install_path name
+        else
+          Path.Build.relative
+            (Pkg_tool.deps_install_path_base name)
+            (Pkg_digest.to_string pkg_digest)
     in
     of_root pkg_digest.name ~root
   ;;
@@ -2516,20 +2526,21 @@ let setup_rules ~components ~dir ctx =
         (Gen_rules.Build_only_sub_dirs.singleton ~dir Subdir_set.all)
       (Memo.return Rules.empty)
     |> Memo.return
+  | true, ([ ".tools"; ".deps" ] | [ ".tools"; ".deps"; _ ]) ->
+    Gen_rules.make
+      ~build_dir_only_sub_dirs:
+        (Gen_rules.Build_only_sub_dirs.singleton ~dir Subdir_set.all)
+      (Memo.return Rules.empty)
+    |> Memo.return
+  | true, [ ".tools"; ".deps"; tool_package_name; pkg_digest_string ] ->
+    let name = Package.Name.of_string tool_package_name in
+    let* () = Pkg_tool.check_declared name in
+    let* db, (_ : Pkg_digest.t) = DB.of_tool name in
+    let pkg_digest = Pkg_digest.of_string pkg_digest_string in
+    setup_package_rules db ~package_universe:(Tool name) ~dir ~pkg_digest
   | true, [ ".tools"; tool_package_name ] ->
     let name = Package.Name.of_string tool_package_name in
-    let* workspace = Workspace.workspace () in
-    let declared =
-      List.exists workspace.tools ~f:(fun (tool : Workspace.Tool.t) ->
-        Package.Name.equal tool.name name)
-    in
-    if not declared
-    then
-      User_error.raise
-        [ Pp.textf "Tool %S is not declared in the workspace." tool_package_name ]
-        ~hints:
-          [ Pp.textf "Add (tool (name %s)) to your dune-workspace file." tool_package_name
-          ];
+    let* () = Pkg_tool.check_declared name in
     let* db, pkg_digest = DB.of_tool name in
     setup_package_rules db ~package_universe:(Tool name) ~dir ~pkg_digest
   | true, [ ".tools" ] ->
