@@ -154,6 +154,27 @@ let exec_command dev_tool =
   Cmd.v info term
 ;;
 
+let add_command =
+  let term =
+    let+ builder = Common.Builder.term
+    and+ tool_name =
+      Arg.(
+        required
+        & pos 0 (some string) None
+        & info [] ~docv:"TOOL" ~doc:(Some "The name of the tool to lock."))
+    in
+    let common, config = Common.init builder in
+    let name = Package.Name.of_string tool_name in
+    Scheduler_setup.go_with_rpc_server ~common ~config (fun () ->
+      Lock_tool.lock_tool name |> Memo.run)
+  in
+  let info =
+    let doc = "Lock a tool declared with the (tool ...) stanza in dune-workspace." in
+    Cmd.info "add" ~doc
+  in
+  Cmd.v info term
+;;
+
 let env_command =
   let term =
     let+ builder = Common.Builder.term

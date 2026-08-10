@@ -15,3 +15,7 @@ val which_command : Dune_pkg.Dev_tool.t -> unit Cmd.t
 val install_command : Dune_pkg.Dev_tool.t -> unit Cmd.t
 val exec_command : Dune_pkg.Dev_tool.t -> unit Cmd.t
 val env_command : unit Cmd.t
+
+(** Command locking a tool declared with the [tool] stanza in
+    dune-workspace *)
+val add_command : unit Cmd.t

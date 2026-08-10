@@ -22,29 +22,23 @@ A mock repository with the tool's package:
 Lock the tool:
 
   $ dune tools add foo
-  Usage: dune tools [--help] COMMAND …
-  dune: unknown command 'add'. Must be one of 'env', 'exec', 'install' or
-        'which'
-  [1]
+  Solution for _build/.tools.lock/foo:
+  - foo.1.0.0
 
 The lock directory is created at the tool lock dir location:
 
   $ ls _build/.tools.lock/foo
-  ls: cannot access '_build/.tools.lock/foo': No such file or directory
-  [2]
+  foo.pkg
+  lock.dune
 
 Adding a tool that is already locked does not re-lock it:
 
   $ dune tools add foo
-  Usage: dune tools [--help] COMMAND …
-  dune: unknown command 'add'. Must be one of 'env', 'exec', 'install' or
-        'which'
-  [1]
+  Tool "foo" is already locked.
 
 A tool that is not declared in dune-workspace cannot be added:
 
   $ dune tools add bar
-  Usage: dune tools [--help] COMMAND …
-  dune: unknown command 'add'. Must be one of 'env', 'exec', 'install' or
-        'which'
+  Error: Tool "bar" is not declared in the workspace.
+  Hint: Add (tool (name bar)) to your dune-workspace file.
   [1]

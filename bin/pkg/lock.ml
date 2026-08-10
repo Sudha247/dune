@@ -58,7 +58,10 @@ let user_lock_dir_path path =
   match (path : Path.t) with
   | In_source_tree _ -> path
   | In_build_dir _ -> path
-  | External e -> Dune_pkg.Pkg_workspace.dev_tool_path_to_source_dir e |> Path.source
+  | External e ->
+    (match Dune_pkg.Tool.lock_dir_path_to_source_dir_opt e with
+     | Some source_dir -> Path.source source_dir
+     | None -> Dune_pkg.Pkg_workspace.dev_tool_path_to_source_dir e |> Path.source)
 ;;
 
 let summary_message
