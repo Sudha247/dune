@@ -49,6 +49,11 @@ let solve name =
   let lock_dir = Dune_pkg.Tool.external_lock_dir name |> Path.external_ in
   let local_pkg = make_local_package_wrapping_tool name in
   let local_packages = Package_name.Map.singleton local_pkg.name local_pkg in
+  let portable_lock_dir =
+    match Config.get Dune_rules.Compile_time.portable_lock_dir with
+    | `Enabled -> true
+    | `Disabled -> false
+  in
   Memo.of_reproducible_fiber
   @@ Pkg.Lock.solve
        workspace
@@ -58,7 +63,7 @@ let solve name =
        ~version_preference:None
        ~lock_dirs:[ lock_dir ]
        ~print_perf_stats:false
-       ~portable_lock_dir:false
+       ~portable_lock_dir
 ;;
 
 let lock_tool name =

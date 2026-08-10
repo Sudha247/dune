@@ -22,13 +22,16 @@ A mock repository with the tool's package:
 Lock the tool:
 
   $ dune tools add foo
-  Solution for _build/.tools.lock/foo:
+  Solution for _build/.tools.lock/foo
+  
+  Dependencies common to all supported platforms:
   - foo.1.0.0
+
 
 The lock directory is created at the tool lock dir location:
 
   $ ls _build/.tools.lock/foo
-  foo.pkg
+  foo.1.0.0.pkg
   lock.dune
 
 Adding a tool that is already locked does not re-lock it:
