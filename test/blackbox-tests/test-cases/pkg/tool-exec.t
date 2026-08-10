@@ -33,7 +33,8 @@ A program that is neither buildable nor a declared tool is not found:
 The tool is declared but not locked yet:
 
   $ dune exec foo
-  Error: Program 'foo' not found!
+  Error: Tool "foo" is not locked.
+  Hint: Run 'dune tools add foo'
   [1]
 
 Lock the tool. It can then be run with dune exec:
@@ -44,8 +45,7 @@ Lock the tool. It can then be run with dune exec:
   Dependencies common to all supported platforms:
   - foo.1.0.0
   $ dune exec foo
-  Error: Program 'foo' not found!
-  [1]
+  tool foo
 
 A declared tool takes precedence over a binary of the same name in
 PATH:
@@ -57,7 +57,7 @@ PATH:
   > EOF
   $ chmod +x path-bin/foo
   $ PATH="$PWD/path-bin:$PATH" dune exec foo
-  path foo
+  tool foo
 
 An executable of the project itself takes precedence over the tool:
 

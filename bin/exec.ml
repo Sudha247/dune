@@ -143,6 +143,32 @@ let build_prog ~no_rebuild ~prog p =
     p
 ;;
 
+(* Resolves [prog] as a tool declared with the [tool] stanza in the
+   workspace. For now a tool is matched by the name of its package.
+   Tools are host binaries: they resolve in every build context. *)
+let workspace_tool_path ~prog =
+  let open Memo.O in
+  let* workspace = Workspace.workspace () in
+  match
+    List.find workspace.tools ~f:(fun (tool : Workspace.Tool.t) ->
+      String.equal (Package.Name.to_string tool.name) prog)
+  with
+  | None -> Memo.return None
+  | Some tool ->
+    let lock_dir = Dune_pkg.Tool.external_lock_dir tool.name in
+    Dune_engine.Fs_memo.dir_exists (Path.Outside_build_dir.External lock_dir)
+    >>| (function
+     | false ->
+       User_error.raise
+         [ Pp.textf "Tool %S is not locked." prog ]
+         ~hints:
+           [ Pp.concat
+               ~sep:Pp.space
+               [ Pp.text "Run"; User_message.command (sprintf "dune tools add %s" prog) ]
+           ]
+     | true -> Some (Path.build (Dune_rules.Pkg_tool.exe_path tool.name)))
+;;
+
 let dir_of_context common sctx =
   let context = Dune_rules.Super_context.context sctx in
   Path.Build.relative (Context.build_dir context) (Common.prefix_target common "")
@@ -159,8 +185,19 @@ let get_path common sctx ~prog =
   | In_path ->
     Super_context.resolve_program_memo sctx ~dir ~loc:None prog
     >>= (function
-     | Error (_ : Action.Prog.Not_found.t) -> not_found_with_suggestions ~dir ~prog
-     | Ok p -> Memo.return p)
+     | Ok p when Path.is_in_build_dir p ->
+       (* An executable of the project or of one of its dependencies *)
+       Memo.return p
+     | resolved ->
+       (* Tools declared in the workspace take precedence over binaries
+          from PATH *)
+       workspace_tool_path ~prog
+       >>= (function
+        | Some tool_path -> Memo.return tool_path
+        | None ->
+          (match resolved with
+           | Ok p -> Memo.return p
+           | Error (_ : Action.Prog.Not_found.t) -> not_found_with_suggestions ~dir ~prog)))
   | Relative_to_current_dir ->
     let path = Path.relative_to_source_in_build_or_external ~dir prog in
     Build_system.file_exists path
