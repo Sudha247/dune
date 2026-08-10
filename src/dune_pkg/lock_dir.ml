@@ -560,6 +560,11 @@ let in_source_tree path =
             Path.build_dir |> Path.to_string |> Path.Source.of_string
           in
           Path.Source.L.relative build_as_source (prefix :: dev_tool :: components)
+        | (".tools.lock" as prefix) :: tool :: components ->
+          let build_as_source =
+            Path.build_dir |> Path.to_string |> Path.Source.of_string
+          in
+          Path.Source.L.relative build_as_source (prefix :: tool :: components)
         | build_components ->
           Code_error.raise
             "Unexpected location of lock directory in build directory"
@@ -568,7 +573,10 @@ let in_source_tree path =
             ; "source_components", Dyn.(list string) source_components
             ; "build_components", Dyn.(list string) build_components
             ]))
-  | External e -> Workspace.dev_tool_path_to_source_dir e
+  | External e ->
+    (match Tool.lock_dir_path_to_source_dir_opt e with
+     | Some source_dir -> source_dir
+     | None -> Workspace.dev_tool_path_to_source_dir e)
 ;;
 
 let package_basename package_name maybe_package_version =

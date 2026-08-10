@@ -1,0 +1,34 @@
+open Import
+open Memo.O
+module Tool = Dune_pkg.Tool
+
+let install_path_base_dir_name = Filename.tools_dir_basename
+
+let private_default_dir base_dir_name =
+  Path.Build.L.relative
+    Private_context.t.build_dir
+    [ Context_name.to_string Context_name.default; Filename.to_string base_dir_name ]
+;;
+
+let install_path_base = lazy (private_default_dir Filename.tools_dir_basename)
+let lock_dir_base = lazy (private_default_dir Filename.tool_locks_dir_basename)
+
+let universe_install_path name =
+  Path.Build.relative (Lazy.force install_path_base) (Package.Name.to_string name)
+;;
+
+let exe_path name =
+  Path.Build.L.relative
+    (universe_install_path name)
+    ("target" :: Tool.exe_path_components_within_package name)
+;;
+
+let build_lock_dir name =
+  Path.Build.relative (Lazy.force lock_dir_base) (Package.Name.to_string name)
+;;
+
+let lock_dir name =
+  (* Ensure the internal lock dir is built so copy rules run *)
+  let* () = Build_system.build_dir (Path.build (build_lock_dir name)) in
+  Lock_dir.load_exn (Path.external_ (Tool.external_lock_dir name))
+;;

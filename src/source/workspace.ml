@@ -896,11 +896,16 @@ let source_path_of_lock_dir_path path =
        Path.Source.L.relative Path.Source.root lock_dir_segs
      | [ ".dev-tools.locks"; dev_tool ] ->
        Path.Source.L.relative Path.Source.root [ "_build"; ".dev-tools.locks"; dev_tool ]
+     | [ ".tools.lock"; tool ] ->
+       Path.Source.L.relative Path.Source.root [ "_build"; ".tools.lock"; tool ]
      | components ->
        Code_error.raise
          "Unsupported build path"
          [ "dir", Path.Build.to_dyn b; "components", Dyn.(list string) components ])
-  | External e -> Dune_pkg.Pkg_workspace.dev_tool_path_to_source_dir e
+  | External e ->
+    (match Dune_pkg.Tool.lock_dir_path_to_source_dir_opt e with
+     | Some source_dir -> source_dir
+     | None -> Dune_pkg.Pkg_workspace.dev_tool_path_to_source_dir e)
 ;;
 
 let find_lock_dir t path =

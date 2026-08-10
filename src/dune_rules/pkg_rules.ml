@@ -64,11 +64,13 @@ module Package_universe = struct
   type t =
     | Dependencies of Context_name.t
     | Dev_tool of Dune_pkg.Dev_tool.t
+    | Tool of Package.Name.t
 
   let equal a b =
     match a, b with
     | Dependencies a, Dependencies b -> Context_name.equal a b
     | Dev_tool a, Dev_tool b -> Dune_pkg.Dev_tool.equal a b
+    | Tool a, Tool b -> Package.Name.equal a b
     | _ -> false
   ;;
 
@@ -77,12 +79,13 @@ module Package_universe = struct
     | Dependencies context_name ->
       Tuple.T2.hash Int.hash Context_name.hash (0, context_name)
     | Dev_tool dev_tool -> Tuple.T2.hash Int.hash Dune_pkg.Dev_tool.hash (1, dev_tool)
+    | Tool name -> Tuple.T2.hash Int.hash Package.Name.hash (2, name)
   ;;
 
   let context_name = function
     | Dependencies context_name -> context_name
-    | Dev_tool _ ->
-      (* Dev tools can only be built in the default context. *)
+    | Dev_tool _ | Tool _ ->
+      (* Dev tools and tools can only be built in the default context. *)
       Context_name.default
   ;;
 
@@ -91,12 +94,15 @@ module Package_universe = struct
     | Dependencies ctx -> Lock_dir.get_path ctx
     | Dev_tool dev_tool ->
       Lock_dir.dev_tool_lock_dir dev_tool |> Option.some |> Memo.return
+    | Tool name ->
+      Pkg_tool.build_lock_dir name |> Path.build |> Option.some |> Memo.return
   ;;
 
   let lock_dir t =
     match t with
     | Dependencies ctx -> Lock_dir.get_exn ctx
     | Dev_tool dev_tool -> Lock_dir.of_dev_tool dev_tool
+    | Tool name -> Pkg_tool.lock_dir name
   ;;
 end
 
@@ -256,6 +262,7 @@ module Paths = struct
           Private_context.t.build_dir
           [ Context_name.to_string ctx; ".pkg"; Pkg_digest.to_string pkg_digest ]
       | Dev_tool dev_tool -> Pkg_dev_tool.universe_install_path dev_tool
+      | Tool name -> Pkg_tool.universe_install_path name
     in
     of_root pkg_digest.name ~root
   ;;
@@ -1505,6 +1512,23 @@ module DB = struct
       and+ pkg_digest = Memo.exec of_dev_tool_memo dev_tool in
       db, pkg_digest
   ;;
+
+  (* Returns the db for the given tool's own lock dir and the digest of
+     the tool's package. Unlike dev tools, the dependency closure of a
+     tool is not shared with the project's dependencies. *)
+  let of_tool =
+    let of_tool_memo =
+      Memo.create "pkg-db-tool" ~input:(module Package.Name)
+      @@ fun name ->
+      let+ lock_dir = Pkg_tool.lock_dir name
+      and+ platform = Lock_dir.Sys_vars.solver_env in
+      let system_provided = default_system_provided in
+      let pkg_digest_table = Pkg_table.of_lock_dir lock_dir ~platform ~system_provided in
+      let db = create ~pkg_digest_table ~system_provided in
+      db, pkg_digest_of_name lock_dir platform name ~system_provided
+    in
+    fun name -> Memo.exec of_tool_memo name
+  ;;
 end
 
 module rec Resolve : sig
@@ -2474,18 +2498,52 @@ let setup_package_rules db ~package_universe ~dir ~pkg_digest : Gen_rules.result
 
 let setup_rules ~components ~dir ctx =
   (* Note that the path components in the following patterns must
-     correspond to the paths returned by [Paths.make]. The string
-     ".dev-tool" is hardcoded into several patterns, and must match
-     the value of [Pkg_dev_tool.install_path_base_dir_name]. *)
+     correspond to the paths returned by [Paths.make]. The strings
+     ".dev-tool" and ".tools" are hardcoded into several patterns, and
+     must match the values of [Pkg_dev_tool.install_path_base_dir_name]
+     and [Pkg_tool.install_path_base_dir_name]. *)
   assert (String.equal Pkg_dev_tool.install_path_base_dir_name ".dev-tool");
+  assert (String.equal (Filename.to_string Pkg_tool.install_path_base_dir_name) ".tools");
   match Context_name.is_default ctx, components with
   | true, [ ".dev-tool"; dev_tool_package_name ] ->
     let pkg_name = Package.Name.of_string dev_tool_package_name in
     let dev_tool = Pkg_dev_tool.of_package_name pkg_name in
     let* db, pkg_digest = DB.of_dev_tool (Dune_pkg.Dev_tool.of_package_name pkg_name) in
     setup_package_rules db ~package_universe:(Dev_tool dev_tool) ~dir ~pkg_digest
-  | true, [ ".dev-tool" ] -> Gen_rules.make_empty ~dir Subdir_set.all |> Memo.return
-  | _, [ ".pkg" ] -> Gen_rules.make_empty ~dir Subdir_set.all |> Memo.return
+  | true, [ ".dev-tool" ] ->
+    Gen_rules.make
+      ~build_dir_only_sub_dirs:
+        (Gen_rules.Build_only_sub_dirs.singleton ~dir Subdir_set.all)
+      (Memo.return Rules.empty)
+    |> Memo.return
+  | true, [ ".tools"; tool_package_name ] ->
+    let name = Package.Name.of_string tool_package_name in
+    let* workspace = Workspace.workspace () in
+    let declared =
+      List.exists workspace.tools ~f:(fun (tool : Workspace.Tool.t) ->
+        Package.Name.equal tool.name name)
+    in
+    if not declared
+    then
+      User_error.raise
+        [ Pp.textf "Tool %S is not declared in the workspace." tool_package_name ]
+        ~hints:
+          [ Pp.textf "Add (tool (name %s)) to your dune-workspace file." tool_package_name
+          ];
+    let* db, pkg_digest = DB.of_tool name in
+    setup_package_rules db ~package_universe:(Tool name) ~dir ~pkg_digest
+  | true, [ ".tools" ] ->
+    Gen_rules.make
+      ~build_dir_only_sub_dirs:
+        (Gen_rules.Build_only_sub_dirs.singleton ~dir Subdir_set.all)
+      (Memo.return Rules.empty)
+    |> Memo.return
+  | _, [ ".pkg" ] ->
+    Gen_rules.make
+      ~build_dir_only_sub_dirs:
+        (Gen_rules.Build_only_sub_dirs.singleton ~dir Subdir_set.all)
+      (Memo.return Rules.empty)
+    |> Memo.return
   | _, [ ".pkg"; pkg_digest_string ] ->
     (* Only generate pkg rules if there is a lock dir for that context *)
     let* lock_dir_active = Lock_dir.lock_dir_active ctx in
@@ -2497,12 +2555,15 @@ let setup_rules ~components ~dir ctx =
        setup_package_rules db ~package_universe:(Dependencies ctx) ~dir ~pkg_digest)
   | _, ".pkg" :: _ :: _ ->
     Memo.return @@ Gen_rules.redirect_to_parent Gen_rules.Rules.empty
-  | true, ".dev-tool" :: _ :: _ :: _ ->
+  | true, ".dev-tool" :: _ :: _ :: _ | true, ".tools" :: _ :: _ :: _ ->
     Memo.return @@ Gen_rules.redirect_to_parent Gen_rules.Rules.empty
   | is_default, [] ->
     let sub_dirs =
       Filename.pkg_dir_basename
-      :: (if is_default then [ Filename.dev_tool_dir_basename ] else [])
+      ::
+      (if is_default
+       then [ Filename.dev_tool_dir_basename; Filename.tools_dir_basename ]
+       else [])
     in
     let build_dir_only_sub_dirs =
       Gen_rules.Build_only_sub_dirs.singleton ~dir @@ Subdir_set.of_list sub_dirs
@@ -2559,6 +2620,7 @@ let all_deps universe =
          the universe's respective lock directory. *)
       DB.of_ctx ctx ~allow_sharing:false
     | Dev_tool tool -> DB.of_dev_tool tool >>| fst
+    | Tool name -> DB.of_tool name >>| fst
   in
   Pkg_digest.Map.values db.pkg_digest_table
   |> Memo.parallel_map ~f:(fun { DB.Pkg_table.pkg_digest; _ } ->

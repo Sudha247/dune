@@ -430,6 +430,14 @@ let setup_dev_tool_lock_rules ~dir dev_tool =
   setup_copy_rules ~dir ~lock_dir
 ;;
 
+let setup_tool_lock_rules ~dir (tool : Workspace.Tool.t) =
+  let dir = Path.Build.relative dir (Dune_lang.Package_name.to_string tool.name) in
+  let lock_dir =
+    Path.Outside_build_dir.External (Dune_pkg.Tool.external_lock_dir tool.name)
+  in
+  setup_copy_rules ~dir ~lock_dir
+;;
+
 let setup_rules ~components ~dir =
   let empty = Gen_rules.rules_here Gen_rules.Rules.empty in
   match components with
@@ -446,8 +454,18 @@ let setup_rules ~components ~dir =
     Memo.List.fold_left Dev_tool.all ~init:empty ~f:(fun rules dev_tool ->
       let+ dev_tool_rules = setup_dev_tool_lock_rules ~dir dev_tool in
       Gen_rules.combine rules dev_tool_rules)
+  | [ ".tool-locks" ] ->
+    let* workspace = Workspace.workspace () in
+    Memo.List.fold_left workspace.tools ~init:empty ~f:(fun rules tool ->
+      let+ tool_rules = setup_tool_lock_rules ~dir tool in
+      Gen_rules.combine rules tool_rules)
   | [] ->
-    let sub_dirs = [ Filename.lock_dir_basename; Filename.dev_tool_locks_dir_basename ] in
+    let sub_dirs =
+      [ Filename.lock_dir_basename
+      ; Filename.dev_tool_locks_dir_basename
+      ; Filename.tool_locks_dir_basename
+      ]
+    in
     let build_dir_only_sub_dirs =
       Gen_rules.Build_only_sub_dirs.singleton ~dir @@ Subdir_set.of_list sub_dirs
     in

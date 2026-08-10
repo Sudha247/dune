@@ -148,6 +148,8 @@ val pkg_dir_basename : t
 val rocq : t
 val run_t : t
 val template : t
+val tool_locks_dir_basename : t
+val tools_dir_basename : t
 val topmod_dir_basename : t
 val url : t
 val utop_dir_basename : t

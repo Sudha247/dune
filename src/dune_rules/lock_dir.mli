@@ -6,6 +6,11 @@ type t := Dune_pkg.Lock_dir.t
 val get_with_path : Context_name.t -> (Path.t * t, User_message.t) result Memo.t
 val get : Context_name.t -> (t, User_message.t) result Memo.t
 val get_exn : Context_name.t -> t Memo.t
+
+(** Loads the lock dir at the given path. The path is not tracked by
+    the build system. *)
+val load_exn : Path.t -> t Memo.t
+
 val of_dev_tool : Dune_pkg.Dev_tool.t -> t Memo.t
 
 (** Returns [None] if the lock_dir for the specified dev tool does not exist. *)

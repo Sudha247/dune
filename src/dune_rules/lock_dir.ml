@@ -117,6 +117,8 @@ module Load = Make_load (struct
     ;;
   end)
 
+let load_exn = Load.load_exn
+
 let select_lock_dir lock_dir_selection =
   let* workspace = Workspace.workspace () in
   let expander ~source pform =
