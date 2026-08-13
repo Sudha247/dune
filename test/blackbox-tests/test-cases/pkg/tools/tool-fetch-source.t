@@ -1,6 +1,6 @@
-Building a tool whose package fetches its source archive over http.
-The checksum of a fetched source is looked up in the known lock
-directories when the fetch rule runs.
+Building a tool whose package fetches its source archive over http,
+verifying it against the checksum recorded in the tool's lock
+directory.
 
 A tarball containing the tool's source, served by the fake curl:
 
@@ -46,14 +46,8 @@ Lock the tool:
   Dependencies common to all supported platforms:
   - foo.1.0.0
 
-Build and run the tool. The checksum lookup does not include tool lock
-directories, so the fetch rule cannot find the source URL:
+Build and run the tool:
 
   $ dune build _build/_private/default/.tools/foo/target/bin/foo 2>&1 | sed "s/$checksum/CHECKSUM/g"
-  Error: unknown checksum md5=CHECKSUM
-  -> required by _build/_private/default/.tools/foo/source
-  -> required by _build/_private/default/.tools/foo/target/bin/foo
-  [1]
   $ ./_build/_private/default/.tools/foo/target/bin/foo
-  ./_build/_private/default/.tools/foo/target/bin/foo: No such file or directory
-  [127]
+  tool foo

@@ -180,6 +180,19 @@ let find_checksum, find_url =
             | false -> Memo.return acc
             | true -> Lock_dir.of_dev_tool dev_tool >>| add_checksums_and_urls acc)
       in
+      let* init =
+        let* workspace = Workspace.workspace () in
+        Memo.List.fold_left workspace.tools ~init ~f:(fun acc (tool : Workspace.Tool.t) ->
+          let dir = Dune_pkg.Tool.external_lock_dir tool.name in
+          let exists =
+            (* Note we use [Fpath.exists] here rather than [Fs_memo] because a
+                 tool's lockdir may be generated part way through a build. *)
+            Fpath.exists (Path.to_string (Path.external_ dir))
+          in
+          match exists with
+          | false -> Memo.return acc
+          | true -> Pkg_tool.lock_dir tool.name >>| add_checksums_and_urls acc)
+      in
       Per_context.list ()
       >>= Memo.parallel_map ~f:(fun ctx_name ->
         let* active = Lock_dir.lock_dir_active ctx_name in
