@@ -808,7 +808,7 @@ module Tool = struct
   let decode =
     fields
       (let+ loc = loc
-       and+ name = field "name" Package.Name.decode in
+       and+ name = field "name" Package.Name.decode_opam_compatible in
        { loc; name })
   ;;
 end

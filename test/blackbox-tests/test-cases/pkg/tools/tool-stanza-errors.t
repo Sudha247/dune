@@ -31,12 +31,18 @@ cannot be specified yet:
   Error: Unknown field "version"
   [1]
 
-An invalid package name is currently accepted silently. This is a
-known gap: "foo/bar" can never name an opam package and would produce
-nested tool lock dir paths.
+The name must be a valid opam package name:
 
   $ cat > dune-workspace <<EOF
   > (lang dune 3.25)
   > (tool (name foo/bar))
   > EOF
   $ dune build
+  File "dune-workspace", line 2, characters 12-19:
+  2 | (tool (name foo/bar))
+                  ^^^^^^^
+  Error: "foo/bar" is an invalid opam package name.
+  Package names can contain letters, numbers, '-', '_' and '+', and need to
+  contain at least a letter.
+  Hint: foo_bar would be a correct opam package name
+  [1]
