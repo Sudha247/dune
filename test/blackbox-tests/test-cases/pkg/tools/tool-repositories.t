@@ -21,11 +21,10 @@ stanza is involved:
   >  (url "$(default_repo_path)"))
   > EOF
   $ dune tools add foo
-  File "dune-workspace", line 4, characters 2-14:
-  4 |  (repositories mock))
-        ^^^^^^^^^^^^
-  Error: Unknown field "repositories"
-  [1]
+  Solution for _build/.tools.lock/foo
+  
+  Dependencies common to all supported platforms:
+  - foo.1.0.0
 
 Naming a repository that is not declared in the workspace is an
 error:
@@ -38,8 +37,8 @@ error:
   > EOF
   $ rm -rf _build/.tools.lock
   $ dune tools add foo
-  File "dune-workspace", line 4, characters 2-14:
+  File "dune-workspace", line 4, characters 15-21:
   4 |  (repositories nosuch))
-        ^^^^^^^^^^^^
-  Error: Unknown field "repositories"
+                     ^^^^^^
+  Error: Repository 'nosuch' is not a known repository
   [1]

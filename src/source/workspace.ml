@@ -17,6 +17,15 @@ let default_repositories =
   [ Repository.overlay; Repository.relocatable; Repository.upstream ]
 ;;
 
+let repositories_of_ordered_set ordered_set =
+  Dune_lang.Ordered_set_lang.eval
+    ordered_set
+    ~parse:(fun ~loc string ->
+      loc, Dune_pkg.Pkg_workspace.Repository.Name.parse_string_exn (loc, string))
+    ~eq:(fun (_, x) (_, y) -> Dune_pkg.Pkg_workspace.Repository.Name.equal x y)
+    ~standard:(List.map default_repositories ~f:(fun d -> Loc.none, Repository.name d))
+;;
+
 module Lock_dir = struct
   type t =
     { loc : Loc.t
@@ -129,15 +138,6 @@ module Lock_dir = struct
   ;;
 
   let decode ~dir =
-    let repositories_of_ordered_set ordered_set =
-      Dune_lang.Ordered_set_lang.eval
-        ordered_set
-        ~parse:(fun ~loc string ->
-          loc, Dune_pkg.Pkg_workspace.Repository.Name.parse_string_exn (loc, string))
-        ~eq:(fun (_, x) (_, y) -> Dune_pkg.Pkg_workspace.Repository.Name.equal x y)
-        ~standard:
-          (List.map default_repositories ~f:(fun d -> Loc.none, Repository.name d))
-    in
     let decode =
       let+ loc = loc
       and+ path =
@@ -791,6 +791,7 @@ module Tool = struct
   type t =
     { loc : Loc.t
     ; name : Package.Name.t
+    ; repositories : (Loc.t * Dune_pkg.Pkg_workspace.Repository.Name.t) list
     }
 
   let repr =
@@ -798,18 +799,31 @@ module Tool = struct
       "tool"
       [ Repr.field "loc" Loc.repr ~get:(fun t -> t.loc)
       ; Repr.field "name" (Repr.abstract Package.Name.to_dyn) ~get:(fun t -> t.name)
+      ; Repr.field
+          "repositories"
+          (Repr.list (Repr.abstract Dune_pkg.Pkg_workspace.Repository.Name.to_dyn))
+          ~get:(fun t -> List.map t.repositories ~f:snd)
       ]
   ;;
 
   let to_dyn = Repr.to_dyn repr
-  let hash { loc; name } = Poly.hash (loc, name)
-  let equal { loc; name } t = Loc.equal loc t.loc && Package.Name.equal name t.name
+  let hash { loc; name; repositories } = Poly.hash (loc, name, repositories)
+
+  let equal { loc; name; repositories } t =
+    Loc.equal loc t.loc
+    && Package.Name.equal name t.name
+    && List.equal
+         (Tuple.T2.equal Loc.equal Dune_pkg.Pkg_workspace.Repository.Name.equal)
+         repositories
+         t.repositories
+  ;;
 
   let decode =
     fields
       (let+ loc = loc
-       and+ name = field "name" Package.Name.decode_opam_compatible in
-       { loc; name })
+       and+ name = field "name" Package.Name.decode_opam_compatible
+       and+ repositories = Dune_lang.Ordered_set_lang.field "repositories" in
+       { loc; name; repositories = repositories_of_ordered_set repositories })
   ;;
 end
 
@@ -908,9 +922,34 @@ let source_path_of_lock_dir_path path =
      | None -> Dune_pkg.Pkg_workspace.dev_tool_path_to_source_dir e)
 ;;
 
+(* The solver configuration of a tool's lock dir comes from the tool
+   stanza itself rather than from a lock_dir stanza. *)
+let lock_dir_of_tool t path =
+  match Path.Source.explode path |> Filename.L.to_string with
+  | [ "_build"; ".tools.lock"; name ] ->
+    let name = Package.Name.of_string name in
+    List.find t.tools ~f:(fun (tool : Tool.t) -> Package.Name.equal tool.name name)
+    |> Option.map ~f:(fun (tool : Tool.t) ->
+      { Lock_dir.loc = tool.loc
+      ; path
+      ; version_preference = None
+      ; solver_env = None
+      ; unset_solver_vars = None
+      ; repositories = tool.repositories
+      ; constraints = []
+      ; pins = []
+      ; depopts = []
+      ; solve_for_platforms = Solver_env.popular_platform_envs
+      })
+  | _ -> None
+;;
+
 let find_lock_dir t path =
   let path = source_path_of_lock_dir_path path in
-  List.find t.lock_dirs ~f:(fun lock_dir -> Path.Source.equal lock_dir.path path)
+  match lock_dir_of_tool t path with
+  | Some _ as tool_lock_dir -> tool_lock_dir
+  | None ->
+    List.find t.lock_dirs ~f:(fun lock_dir -> Path.Source.equal lock_dir.path path)
 ;;
 
 let add_repo t repo = { t with repos = repo :: t.repos }

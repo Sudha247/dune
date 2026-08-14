@@ -42,29 +42,23 @@ file declares a wrong checksum:
   > EOF
   $ cat > dune-workspace <<EOF
   > (lang dune 3.25)
-  > (tool (name buildfail))
-  > (lock_dir
-  >  (path _build/.tools.lock/buildfail)
+  > (tool
+  >  (name buildfail)
   >  (repositories mock))
-  > (tool (name nobin))
-  > (lock_dir
-  >  (path _build/.tools.lock/nobin)
+  > (tool
+  >  (name nobin)
   >  (repositories mock))
-  > (tool (name depfail))
-  > (lock_dir
-  >  (path _build/.tools.lock/depfail)
+  > (tool
+  >  (name depfail)
   >  (repositories mock))
-  > (tool (name badcheck))
-  > (lock_dir
-  >  (path _build/.tools.lock/badcheck)
+  > (tool
+  >  (name badcheck)
   >  (repositories mock))
-  > (tool (name tampered))
-  > (lock_dir
-  >  (path _build/.tools.lock/tampered)
+  > (tool
+  >  (name tampered)
   >  (repositories mock))
-  > (tool (name corrupt))
-  > (lock_dir
-  >  (path _build/.tools.lock/corrupt)
+  > (tool
+  >  (name corrupt)
   >  (repositories mock))
   > (repository
   >  (name mock)

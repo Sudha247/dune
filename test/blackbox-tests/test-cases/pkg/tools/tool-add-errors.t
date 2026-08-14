@@ -14,9 +14,8 @@ The tool's package does not exist in the repository:
   > EOF
   $ cat > dune-workspace <<EOF
   > (lang dune 3.25)
-  > (tool (name foo))
-  > (lock_dir
-  >  (path _build/.tools.lock/foo)
+  > (tool
+  >  (name foo)
   >  (repositories mock))
   > (repository
   >  (name mock)
