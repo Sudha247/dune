@@ -36,6 +36,8 @@ file declares a wrong checksum:
   $ mkpkg corrupt 1.0.0 <<EOF
   > install: [ "sh" "-c" "mkdir -p %{bin}% && touch %{bin}%/corrupt" ]
   > EOF
+  $ mkpkg notlocked 1.0.0 <<EOF
+  > EOF
 
   $ cat > dune-project <<EOF
   > (lang dune 3.25)
@@ -59,6 +61,9 @@ file declares a wrong checksum:
   >  (repositories mock))
   > (tool
   >  (name corrupt)
+  >  (repositories mock))
+  > (tool
+  >  (name notlocked)
   >  (repositories mock))
   > (repository
   >  (name mock)
@@ -161,4 +166,12 @@ The lock.dune of the tool's lock directory is corrupted:
   1 | garbage
       ^^^^^^^
   Error: Invalid first line, expected: (lang <lang> <version>)
+  [1]
+
+The tool is declared but was never locked ("dune tools add" was never
+run for it), and its target is built directly rather than through
+"dune exec":
+
+  $ dune build _build/_private/default/.tools/notlocked/target/bin/notlocked
+  Error: No rule found for default/.tool-locks/notlocked (context _private)
   [1]
