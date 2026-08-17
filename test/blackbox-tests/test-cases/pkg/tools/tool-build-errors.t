@@ -173,5 +173,6 @@ run for it), and its target is built directly rather than through
 "dune exec":
 
   $ dune build _build/_private/default/.tools/notlocked/target/bin/notlocked
-  Error: No rule found for default/.tool-locks/notlocked (context _private)
+  Error: Tool "notlocked" is not locked.
+  Hint: Run 'dune tools add notlocked'
   [1]

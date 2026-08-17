@@ -38,7 +38,28 @@ let build_lock_dir name =
   Path.Build.relative (Lazy.force lock_dir_base) (Package.Name.to_string name)
 ;;
 
+let is_locked name =
+  Fs_memo.dir_exists (Path.Outside_build_dir.External (Tool.external_lock_dir name))
+;;
+
+let raise_not_locked name =
+  let name = Package.Name.to_string name in
+  User_error.raise
+    [ Pp.textf "Tool %S is not locked." name ]
+    ~hints:
+      [ Pp.concat
+          ~sep:Pp.space
+          [ Pp.text "Run"; User_message.command (sprintf "dune tools add %s" name) ]
+      ]
+;;
+
+let check_locked name =
+  let+ locked = is_locked name in
+  if not locked then raise_not_locked name
+;;
+
 let lock_dir name =
+  let* () = check_locked name in
   (* Ensure the internal lock dir is built so copy rules run *)
   let* () = Build_system.build_dir (Path.build (build_lock_dir name)) in
   Lock_dir.load_exn (Path.external_ (Tool.external_lock_dir name))

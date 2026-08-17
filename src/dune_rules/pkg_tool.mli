@@ -22,8 +22,16 @@ val exe_path : Package.Name.t -> Path.Build.t
     the external lock dir. *)
 val build_lock_dir : Package.Name.t -> Path.Build.t
 
+(** Whether the given tool's external lock dir exists *)
+val is_locked : Package.Name.t -> bool Memo.t
+
+(** Raises a user error explaining that the given tool is not locked,
+    with a hint to run [dune tools add] *)
+val raise_not_locked : Package.Name.t -> 'a
+
 (** Loads the lock dir of the given tool, making sure the copy rules
-    populating it have run *)
+    populating it have run. Raises the same error as [raise_not_locked]
+    if the tool is not locked. *)
 val lock_dir : Package.Name.t -> Dune_pkg.Lock_dir.t Memo.t
 
 (** Raises a user error if the given tool is not declared with a [tool]

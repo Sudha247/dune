@@ -155,17 +155,9 @@ let workspace_tool_path ~prog =
   with
   | None -> Memo.return None
   | Some tool ->
-    let lock_dir = Dune_pkg.Tool.external_lock_dir tool.name in
-    Dune_engine.Fs_memo.dir_exists (Path.Outside_build_dir.External lock_dir)
+    Dune_rules.Pkg_tool.is_locked tool.name
     >>| (function
-     | false ->
-       User_error.raise
-         [ Pp.textf "Tool %S is not locked." prog ]
-         ~hints:
-           [ Pp.concat
-               ~sep:Pp.space
-               [ Pp.text "Run"; User_message.command (sprintf "dune tools add %s" prog) ]
-           ]
+     | false -> Dune_rules.Pkg_tool.raise_not_locked tool.name
      | true -> Some (Path.build (Dune_rules.Pkg_tool.exe_path tool.name)))
 ;;
 
