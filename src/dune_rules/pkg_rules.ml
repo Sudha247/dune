@@ -1535,7 +1535,28 @@ module DB = struct
       let system_provided = default_system_provided in
       let pkg_digest_table = Pkg_table.of_lock_dir lock_dir ~platform ~system_provided in
       let db = create ~pkg_digest_table ~system_provided in
-      db, pkg_digest_of_name lock_dir platform name ~system_provided
+      let pkg_digest =
+        let entries_by_name =
+          Pkg_table.entries_by_name_of_lock_dir lock_dir ~platform ~system_provided
+        in
+        match Package.Name.Map.find entries_by_name name with
+        | Some entry -> entry.pkg_digest
+        | None ->
+          User_error.raise
+            [ Pp.textf
+                "The lock directory of the tool %S does not contain a lockfile for its \
+                 package. It may have been modified."
+                (Package.Name.to_string name)
+            ]
+            ~hints:
+              [ Pp.textf
+                  "Delete %s and run 'dune tools add %s' again."
+                  (Path.to_string_maybe_quoted
+                     (Path.external_ (Dune_pkg.Tool.external_lock_dir name)))
+                  (Package.Name.to_string name)
+              ]
+      in
+      db, pkg_digest
     in
     fun name -> Memo.exec of_tool_memo name
   ;;

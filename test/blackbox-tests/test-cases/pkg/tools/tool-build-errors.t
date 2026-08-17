@@ -132,8 +132,7 @@ in the lock directory:
   [1]
 
 The lockfile of the tool's package was deleted from the lock
-directory. This currently crashes; the output is truncated to keep
-the part that is stable across code changes:
+directory:
 
   $ dune tools add tampered
   Solution for _build/.tools.lock/tampered
@@ -141,12 +140,12 @@ the part that is stable across code changes:
   Dependencies common to all supported platforms:
   - tampered.1.0.0
   $ rm _build/.tools.lock/tampered/tampered.1.0.0.pkg
-  $ dune build _build/_private/default/.tools/tampered/target/bin/tampered 2>&1 | head -n 5
-  Internal error! Please report to https://github.com/ocaml/dune/issues,
-  providing the file _build/trace.csexp, if possible. This includes build
-  commands, message logs, and file paths.
-  Description:
-    ("Map.find_exn: failed to find key", { key = "tampered"; keys = [] })
+  $ dune build _build/_private/default/.tools/tampered/target/bin/tampered
+  Error: The lock directory of the tool "tampered" does not contain a lockfile
+  for its package. It may have been modified.
+  Hint: Delete
+  $TESTCASE_ROOT/_build/.tools.lock/tampered
+  and run 'dune tools add tampered' again.
   [1]
 
 The lock.dune of the tool's lock directory is corrupted:
