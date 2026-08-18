@@ -35,6 +35,15 @@ val resolve_installed_file
   -> file:Path.Local.t
   -> Path.t Action_builder.t
 
+(** All binaries installed by a workspace tool package, keyed by
+    executable name. Builds the tool. The caller is responsible for
+    checking that the tool is declared and locked. *)
+val tool_binaries : Package.Name.t -> Path.t Filename.Map.t Memo.t
+
+(** Like [tool_binaries] but never builds: [None] when the tool has
+    not been built yet. For "dune exec --no-build". *)
+val tool_binaries_if_built : Package.Name.t -> Path.t Filename.Map.t option
+
 val dev_tool_env : Dune_pkg.Dev_tool.t -> Env.t Memo.t
 val all_filtered_depexts : Context_name.t -> string list Memo.t
 

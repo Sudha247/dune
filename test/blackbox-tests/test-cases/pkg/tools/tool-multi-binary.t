@@ -1,6 +1,6 @@
 A tool package that provides several binaries, none of which is named
-after the package. All binaries of the package are installed, but only
-a binary named after the package can currently be run.
+after the package. All binaries of the package are installed and can
+be run by name.
 
   $ mkpkg multibin 1.0.0 <<EOF
   > install: [
@@ -32,19 +32,19 @@ a binary named after the package can currently be run.
   - multibin.1.0.0
 
 
-The binaries the locked tool provides cannot be run by name:
+The binaries the locked tool provides can be run by name:
 
   $ dune exec alpha
-  Error: Program 'alpha' not found!
-  [1]
+  alpha
+  $ dune exec beta
+  beta
 
 Running the tool by its package name fails, because the package
 installs no binary named after itself:
 
   $ dune exec multibin
-  Error: This rule defines a directory target "default/.tools/multibin/target"
-  that matches the requested path "default/.tools/multibin/target/bin/multibin"
-  but the rule's action didn't produce it
+  Error: Tool "multibin" does not provide a binary named "multibin".
+  Hint: The tool provides the following binaries: alpha, beta
   [1]
 
 The binaries are nevertheless installed; building one directly works:

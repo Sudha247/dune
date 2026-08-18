@@ -5,14 +5,6 @@ open Import
     ([Dev_tool.t]) there is no fixed set of tools. Only a single
     version of a tool can be installed at a time. *)
 
-(** The name of the executable installed by the tool's package. For now
-    this is always the package name. *)
-val exe_name : Package_name.t -> string
-
-(** The path to the tool's executable relative to the root of the
-    tool's package install directory *)
-val exe_path_components_within_package : Package_name.t -> string list
-
 (** The location under the build directory where the lock directory of
     the given tool is expected. Lock directories are created there
     outside the build system. *)

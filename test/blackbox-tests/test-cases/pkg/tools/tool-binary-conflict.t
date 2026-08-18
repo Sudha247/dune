@@ -46,9 +46,9 @@ picking one of the tools.
   - toolb.1.0.0
 
 
-Both tools are locked and both provide a binary named "clash". The
-binary cannot be run at all yet:
+Both tools are locked and both provide a binary named "clash".
+Requesting that name reports the conflict instead of picking a tool:
 
   $ dune exec clash
-  Error: Program 'clash' not found!
+  Error: Binary "clash" is provided by several tools: toola, toolb.
   [1]

@@ -2681,6 +2681,35 @@ let which context =
     Filename.Map.find artifacts program)
 ;;
 
+let tool_cookie_path name =
+  Paths.install_cookie'
+    (Path.Build.relative (Pkg_tool.universe_install_path name) "target")
+  |> Path.build
+;;
+
+let binaries_of_cookie cookie_path =
+  let cookie = Install_cookie.load_exn cookie_path in
+  Section.Map.Multi.find cookie.files Bin
+  |> List.fold_left ~init:Filename.Map.empty ~f:(fun acc bin ->
+    Filename.Map.set
+      acc
+      (Filename.of_string_exn (Bin.strip_exe (Path.basename bin |> Filename.to_string)))
+      bin)
+;;
+
+let tool_binaries name =
+  let cookie_path = tool_cookie_path name in
+  let+ () = Build_system.build_file cookie_path in
+  binaries_of_cookie cookie_path
+;;
+
+let tool_binaries_if_built name =
+  let cookie_path = tool_cookie_path name in
+  if Fpath.exists (Path.to_string cookie_path)
+  then Some (binaries_of_cookie cookie_path)
+  else None
+;;
+
 let ocamlpath universe =
   let+ all_project_deps = all_deps universe in
   let env = Pkg.build_env_of_deps all_project_deps in

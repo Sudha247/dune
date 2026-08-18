@@ -28,12 +28,6 @@ let deps_install_path_base name =
     [ ".deps"; Package.Name.to_string name ]
 ;;
 
-let exe_path name =
-  Path.Build.L.relative
-    (universe_install_path name)
-    ("target" :: Tool.exe_path_components_within_package name)
-;;
-
 let build_lock_dir name =
   Path.Build.relative (Lazy.force lock_dir_base) (Package.Name.to_string name)
 ;;

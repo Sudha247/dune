@@ -84,7 +84,7 @@ let not_found ~hints ~prog =
     ]
 ;;
 
-let not_found_with_suggestions ~dir ~prog =
+let not_found_with_suggestions ~dir ~prog ~extra_hints =
   let open Memo.O in
   let+ hints =
     (* Good candidates for the "./x.exe" instead of "x.exe" error are
@@ -103,7 +103,7 @@ let not_found_with_suggestions ~dir ~prog =
     in
     User_message.did_you_mean prog ~candidates
   in
-  not_found ~hints ~prog
+  not_found ~hints:(hints @ extra_hints) ~prog
 ;;
 
 let program_not_built_yet prog =
@@ -143,22 +143,128 @@ let build_prog ~no_rebuild ~prog p =
     p
 ;;
 
+let no_binary_named_after_tool name ~binaries =
+  let name = Package.Name.to_string name in
+  User_error.raise
+    [ Pp.textf "Tool %S does not provide a binary named %S." name name ]
+    ~hints:
+      [ (match Filename.Map.keys binaries with
+         | [] -> Pp.textf "The tool installs no binaries."
+         | binaries ->
+           Pp.textf
+             "The tool provides the following binaries: %s"
+             (String.concat ~sep:", " (List.map binaries ~f:Filename.to_string)))
+      ]
+;;
+
+(* The binaries provided by a tool are only known once the tool is
+   built: they are read from its install cookie. *)
+let tool_binaries ~no_rebuild ~prog (tool : Workspace.Tool.t) =
+  let open Memo.O in
+  Dune_rules.Pkg_tool.is_locked tool.name
+  >>= function
+  | false -> Dune_rules.Pkg_tool.raise_not_locked tool.name
+  | true ->
+    if no_rebuild
+    then (
+      match Dune_rules.Pkg_rules.tool_binaries_if_built tool.name with
+      | Some binaries -> Memo.return binaries
+      | None -> program_not_built_yet prog)
+    else Dune_rules.Pkg_rules.tool_binaries tool.name
+;;
+
+(* [prog] does not name a tool: search the binaries of every declared
+   and locked tool for it. Building a tool is the only way to learn
+   which binaries it provides, so this builds all locked tools; under
+   --no-build only tools that are already built are searched. *)
+let search_tool_binaries ~no_rebuild ~prog (tools : Workspace.Tool.t list) =
+  let open Memo.O in
+  let+ providers =
+    Memo.parallel_map tools ~f:(fun (tool : Workspace.Tool.t) ->
+      Dune_rules.Pkg_tool.is_locked tool.name
+      >>= function
+      | false -> Memo.return None
+      | true ->
+        let+ binaries =
+          if no_rebuild
+          then
+            Dune_rules.Pkg_rules.tool_binaries_if_built tool.name
+            |> Option.value ~default:Filename.Map.empty
+            |> Memo.return
+          else Dune_rules.Pkg_rules.tool_binaries tool.name
+        in
+        Filename.Map.find binaries (Filename.of_string_exn prog)
+        |> Option.map ~f:(fun path -> tool.name, path))
+    >>| List.filter_opt
+  in
+  match providers with
+  | [] -> None
+  | [ (_, path) ] -> Some path
+  | providers ->
+    User_error.raise
+      [ Pp.textf
+          "Binary %S is provided by several tools: %s."
+          prog
+          (String.concat
+             ~sep:", "
+             (List.map providers ~f:(fun (name, _) -> Package.Name.to_string name)))
+      ]
+;;
+
+(* Declared tools that are not locked cannot participate in the search
+   for a binary: which binaries they provide is unknown until they are
+   locked and built. Point the user at locking them. *)
+let unlocked_tools_hints (tools : Workspace.Tool.t list) =
+  let open Memo.O in
+  let+ unlocked =
+    Memo.parallel_map tools ~f:(fun (tool : Workspace.Tool.t) ->
+      Dune_rules.Pkg_tool.is_locked tool.name
+      >>| function
+      | true -> None
+      | false -> Some tool.name)
+    >>| List.filter_opt
+  in
+  match unlocked with
+  | [] -> []
+  | [ name ] ->
+    let name = Package.Name.to_string name in
+    [ Pp.concat
+        ~sep:Pp.space
+        [ Pp.textf "Tool %S is not locked: its binaries were not searched." name
+        ; Pp.text "Run"
+        ; User_message.command (sprintf "dune tools add %s" name)
+        ]
+    ]
+  | unlocked ->
+    [ Pp.concat
+        ~sep:Pp.space
+        [ Pp.textf
+            "Tools %s are not locked: their binaries were not searched."
+            (String.concat ~sep:", " (List.map unlocked ~f:Package.Name.to_string))
+        ; Pp.text "Run"
+        ; User_message.command "dune tools add NAME"
+        ; Pp.text "to lock a tool."
+        ]
+    ]
+;;
+
 (* Resolves [prog] as a tool declared with the [tool] stanza in the
-   workspace. For now a tool is matched by the name of its package.
-   Tools are host binaries: they resolve in every build context. *)
-let workspace_tool_path ~prog =
+   workspace: by the name of its package, or failing that by the names
+   of the binaries the tools provide. Tools are host binaries: they
+   resolve in every build context. *)
+let workspace_tool_path ~no_rebuild ~prog =
   let open Memo.O in
   let* workspace = Workspace.workspace () in
   match
     List.find workspace.tools ~f:(fun (tool : Workspace.Tool.t) ->
       String.equal (Package.Name.to_string tool.name) prog)
   with
-  | None -> Memo.return None
+  | None -> search_tool_binaries ~no_rebuild ~prog workspace.tools
   | Some tool ->
-    Dune_rules.Pkg_tool.is_locked tool.name
-    >>| (function
-     | false -> Dune_rules.Pkg_tool.raise_not_locked tool.name
-     | true -> Some (Path.build (Dune_rules.Pkg_tool.exe_path tool.name)))
+    let+ binaries = tool_binaries ~no_rebuild ~prog tool in
+    (match Filename.Map.find binaries (Filename.of_string_exn prog) with
+     | Some path -> Some path
+     | None -> no_binary_named_after_tool tool.name ~binaries)
 ;;
 
 let dir_of_context common sctx =
@@ -166,7 +272,7 @@ let dir_of_context common sctx =
   Path.Build.relative (Context.build_dir context) (Common.prefix_target common "")
 ;;
 
-let get_path common sctx ~prog =
+let get_path common sctx ~no_rebuild ~prog =
   if
     String.equal (Filename.basename prog) Filename.current_dir_name
     || String.equal (Filename.basename prog) Filename.parent_dir_name
@@ -183,19 +289,22 @@ let get_path common sctx ~prog =
      | resolved ->
        (* Tools declared in the workspace take precedence over binaries
           from PATH *)
-       workspace_tool_path ~prog
+       workspace_tool_path ~no_rebuild ~prog
        >>= (function
         | Some tool_path -> Memo.return tool_path
         | None ->
           (match resolved with
            | Ok p -> Memo.return p
-           | Error (_ : Action.Prog.Not_found.t) -> not_found_with_suggestions ~dir ~prog)))
+           | Error (_ : Action.Prog.Not_found.t) ->
+             let* workspace = Workspace.workspace () in
+             let* extra_hints = unlocked_tools_hints workspace.tools in
+             not_found_with_suggestions ~dir ~prog ~extra_hints)))
   | Relative_to_current_dir ->
     let path = Path.relative_to_source_in_build_or_external ~dir prog in
     Build_system.file_exists path
     >>= (function
      | true -> Memo.return path
-     | false -> not_found_with_suggestions ~dir ~prog)
+     | false -> not_found_with_suggestions ~dir ~prog ~extra_hints:[])
   | Absolute ->
     let path =
       Path.of_string prog
@@ -209,12 +318,12 @@ let get_path common sctx ~prog =
       Build_system.file_exists path
       >>= (function
        | true -> Memo.return path
-       | false -> not_found_with_suggestions ~dir ~prog)
+       | false -> not_found_with_suggestions ~dir ~prog ~extra_hints:[])
 ;;
 
 let get_path_and_build_if_necessary common sctx ~no_rebuild ~prog =
   let open Memo.O in
-  let* path = get_path common sctx ~prog in
+  let* path = get_path common sctx ~no_rebuild ~prog in
   match Filename.analyze_program_name prog with
   | In_path | Relative_to_current_dir -> build_prog ~no_rebuild ~prog path
   | Absolute -> Memo.return path

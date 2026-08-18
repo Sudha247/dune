@@ -1,7 +1,5 @@
 open Import
 
-let exe_name name = Package_name.to_string name
-let exe_path_components_within_package name = [ "bin"; exe_name name ]
 let external_lock_dirs_basename = ".tools.lock"
 
 let external_lock_dirs_root () =

@@ -14,9 +14,6 @@ val universe_install_path : Package.Name.t -> Path.Build.t
     dependencies, keyed by package digest *)
 val deps_install_path_base : Package.Name.t -> Path.Build.t
 
-(** The path to the executable for running the given tool *)
-val exe_path : Package.Name.t -> Path.Build.t
-
 (** The lock dir location where the build system can create the lock
     directory for the given tool. It is populated by copy rules from
     the external lock dir. *)

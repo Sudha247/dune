@@ -27,6 +27,8 @@ A program that is neither buildable nor a declared tool is not found:
 
   $ dune exec bar
   Error: Program 'bar' not found!
+  Hint: Tool "foo" is not locked: its binaries were not searched. Run
+  'dune tools add foo'
   [1]
 
 The tool is declared but not locked yet:

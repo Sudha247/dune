@@ -37,7 +37,7 @@ let term : unit Term.t =
   let* setup = Util.setup () in
   let sctx = Dune_rules.Main.find_scontext_exn setup ~name:context in
   let* prog = Exec.Cmd_arg.expand ~root:(Common.root common) ~sctx prog in
-  let+ path = Exec.get_path common sctx ~prog >>| Path.to_string in
+  let+ path = Exec.get_path common sctx ~no_rebuild:false ~prog >>| Path.to_string in
   Console.printf "%s" path
 ;;
 
