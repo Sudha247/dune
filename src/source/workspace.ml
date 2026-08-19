@@ -791,6 +791,7 @@ module Tool = struct
   type t =
     { loc : Loc.t
     ; name : Package.Name.t
+    ; binaries : string list option
     ; repositories : (Loc.t * Dune_pkg.Pkg_workspace.Repository.Name.t) list
     }
 
@@ -800,6 +801,10 @@ module Tool = struct
       [ Repr.field "loc" Loc.repr ~get:(fun t -> t.loc)
       ; Repr.field "name" (Repr.abstract Package.Name.to_dyn) ~get:(fun t -> t.name)
       ; Repr.field
+          "binaries"
+          (Repr.option (Repr.list Repr.string))
+          ~get:(fun t -> t.binaries)
+      ; Repr.field
           "repositories"
           (Repr.list (Repr.abstract Dune_pkg.Pkg_workspace.Repository.Name.to_dyn))
           ~get:(fun t -> List.map t.repositories ~f:snd)
@@ -807,23 +812,83 @@ module Tool = struct
   ;;
 
   let to_dyn = Repr.to_dyn repr
-  let hash { loc; name; repositories } = Poly.hash (loc, name, repositories)
 
-  let equal { loc; name; repositories } t =
+  let hash { loc; name; binaries; repositories } =
+    Poly.hash (loc, name, binaries, repositories)
+  ;;
+
+  let equal { loc; name; binaries; repositories } t =
     Loc.equal loc t.loc
     && Package.Name.equal name t.name
+    && Option.equal (List.equal String.equal) binaries t.binaries
     && List.equal
          (Tuple.T2.equal Loc.equal Dune_pkg.Pkg_workspace.Repository.Name.equal)
          repositories
          t.repositories
   ;;
 
+  (* One entry of a [names] field: either a bare tool name, or a
+     parenthesized [(name (binaries (bin...)))], mirroring the
+     short/long-form idiom [Package_dependency.decode] uses for
+     [depends]. *)
+  type decl =
+    { loc : Loc.t
+    ; name : Package.Name.t
+    ; binaries : string list option
+    }
+
+  let binaries_field =
+    let+ loc, binaries = located (repeat string) in
+    if List.is_empty binaries
+    then User_error.raise ~loc [ Pp.text "\"binaries\" must select at least one binary." ]
+    else binaries
+  ;;
+
+  let tool_dep =
+    let long_form =
+      let+ loc = loc
+      and+ name = Package.Name.decode_opam_compatible
+      and+ binaries = fields (field_o "binaries" binaries_field) in
+      { loc; name; binaries }
+    in
+    peek_exn
+    >>= function
+    | List _ -> enter long_form
+    | _ ->
+      let+ loc, name = located Package.Name.decode_opam_compatible in
+      { loc; name; binaries = None }
+  ;;
+
   let decode =
     fields
       (let+ loc = loc
-       and+ name = field "name" Package.Name.decode_opam_compatible
+       and+ chosen =
+         fields_mutually_exclusive
+           [ ("name", Package.Name.decode_opam_compatible >>| fun name -> `Name name)
+           ; ( "names"
+             , let+ loc, names = located (repeat tool_dep) in
+               if List.is_empty names
+               then
+                 User_error.raise
+                   ~loc
+                   [ Pp.text "\"names\" must declare at least one tool name." ]
+               else `Names names )
+           ]
+       and+ binaries = field_o "binaries" binaries_field
        and+ repositories = Dune_lang.Ordered_set_lang.field "repositories" in
-       { loc; name; repositories = repositories_of_ordered_set repositories })
+       let repositories = repositories_of_ordered_set repositories in
+       match chosen, binaries with
+       | `Names _, Some _ ->
+         User_error.raise
+           ~loc
+           [ Pp.text
+               "\"binaries\" cannot be used together with \"names\"; put a per-name \
+                (binaries ...) inside each entry of \"names\" instead."
+           ]
+       | `Name name, binaries -> [ { loc; name; binaries; repositories } ]
+       | `Names names, None ->
+         List.map names ~f:(fun { loc; name; binaries } ->
+           { loc; name; binaries; repositories }))
   ;;
 end
 
@@ -1152,7 +1217,7 @@ let check_lock_dirs_no_dupes lock_dirs =
       ]
 ;;
 
-let check_tools_no_dupes tools =
+let check_tools_no_dupes (tools : Tool.t list) =
   match
     Package.Name.Map.of_list_map tools ~f:(fun ({ Tool.name; _ } as tool) -> name, tool)
   with
@@ -1226,7 +1291,10 @@ let step1 ~(lang : Lang.Instance.t) clflags =
   and+ lock_dirs = multi_field "lock_dir" (Lock_dir.decode ~dir)
   and+ pins = Pin_stanza.Workspace.decode
   and+ tools =
-    multi_field "tool" (Dune_lang.Syntax.since Stanza.syntax (3, 25) >>> Tool.decode)
+    let+ tools =
+      multi_field "tool" (Dune_lang.Syntax.since Stanza.syntax (3, 25) >>> Tool.decode)
+    in
+    List.concat tools
   in
   let+ contexts = multi_field "context" (lazy_ Context.decode) in
   let config =

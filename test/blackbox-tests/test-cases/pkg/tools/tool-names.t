@@ -23,51 +23,40 @@ independently: there is no shared lock dir or build universe.
 Locking one of the two names does not lock the other:
 
   $ dune tools add foo
-  File "dune-workspace", lines 2-4, characters 0-44:
-  2 | (tool
-  3 |  (names foo bar)
-  4 |  (repositories mock))
-  Error: Field "name" is missing
-  [1]
+  Solution for _build/.tools.lock/foo
+  
+  Dependencies common to all supported platforms:
+  - foo.1.0.0
 
 
   $ ls _build/.tools.lock/foo
-  ls: cannot access '_build/.tools.lock/foo': No such file or directory
-  [2]
+  foo.1.0.0.pkg
+  lock.dune
 
   $ ls _build/.tools.lock
-  ls: cannot access '_build/.tools.lock': No such file or directory
-  [2]
+  foo
 
 Locking the second name is a fully separate operation, with its own
 independent solution:
 
   $ dune tools add bar
-  File "dune-workspace", lines 2-4, characters 0-44:
-  2 | (tool
-  3 |  (names foo bar)
-  4 |  (repositories mock))
-  Error: Field "name" is missing
-  [1]
+  Solution for _build/.tools.lock/bar
+  
+  Dependencies common to all supported platforms:
+  - bar.1.0.0
 
 
   $ ls _build/.tools.lock
-  ls: cannot access '_build/.tools.lock': No such file or directory
-  [2]
+  bar
+  foo
 
 Both are runnable independently:
 
   $ dune exec foo
-  File "dune-workspace", lines 2-4, characters 0-44:
-  2 | (tool
-  3 |  (names foo bar)
-  4 |  (repositories mock))
-  Error: Field "name" is missing
+  Error: Tool "foo" does not provide a binary named "foo".
+  Hint: The tool installs no binaries.
   [1]
   $ dune exec bar
-  File "dune-workspace", lines 2-4, characters 0-44:
-  2 | (tool
-  3 |  (names foo bar)
-  4 |  (repositories mock))
-  Error: Field "name" is missing
+  Error: Tool "bar" does not provide a binary named "bar".
+  Hint: The tool installs no binaries.
   [1]

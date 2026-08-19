@@ -14,7 +14,7 @@ The name field is required:
   File "dune-workspace", line 2, characters 0-6:
   2 | (tool)
       ^^^^^^
-  Error: Field "name" is missing
+  Error: fields name, names are all missing (exactly one is needed)
   [1]
 
 Unknown fields are rejected. In particular the version of a tool
@@ -54,11 +54,10 @@ The name must be a valid opam package name:
   > (tool (name foo) (names bar))
   > EOF
   $ dune build
-  File "dune-workspace", line 2, characters 18-23:
+  File "dune-workspace", line 2, characters 0-29:
   2 | (tool (name foo) (names bar))
-                        ^^^^^
-  Error: Unknown field "names"
-  Hint: did you mean name?
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  Error: fields "name" and "names" are mutually exclusive.
   [1]
 
 "names" must declare at least one tool name:
@@ -68,10 +67,10 @@ The name must be a valid opam package name:
   > (tool (names))
   > EOF
   $ dune build
-  File "dune-workspace", line 2, characters 0-14:
+  File "dune-workspace", line 2, characters 13-13:
   2 | (tool (names))
-      ^^^^^^^^^^^^^^
-  Error: Field "name" is missing
+                   
+  Error: "names" must declare at least one tool name.
   [1]
 
 "binaries" cannot be used alongside "names" at the stanza level; it
@@ -85,7 +84,8 @@ must nest inside each entry of "names" instead:
   File "dune-workspace", line 2, characters 0-31:
   2 | (tool (names foo) (binaries a))
       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  Error: Field "name" is missing
+  Error: "binaries" cannot be used together with "names"; put a per-name
+  (binaries ...) inside each entry of "names" instead.
   [1]
 
 "binaries" must select at least one binary:
@@ -95,8 +95,8 @@ must nest inside each entry of "names" instead:
   > (tool (name foo) (binaries))
   > EOF
   $ dune build
-  File "dune-workspace", line 2, characters 18-26:
+  File "dune-workspace", line 2, characters 27-27:
   2 | (tool (name foo) (binaries))
-                        ^^^^^^^^
-  Error: Unknown field "binaries"
+                                 
+  Error: "binaries" must select at least one binary.
   [1]

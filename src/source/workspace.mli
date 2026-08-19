@@ -25,11 +25,15 @@ module Lock_dir : sig
 end
 
 (** A tool declared in the workspace, identified by the name of the
-    package providing it *)
+    package providing it. A [(tool (names ...))] stanza expands into
+    one [Tool.t] per declared name at decode time; each carries its
+    own optional [binaries] selection and the [repositories] shared by
+    the enclosing stanza. *)
 module Tool : sig
   type t =
     { loc : Loc.t
     ; name : Package.Name.t
+    ; binaries : string list option
     ; repositories : (Loc.t * Dune_pkg.Pkg_workspace.Repository.Name.t) list
     }
 

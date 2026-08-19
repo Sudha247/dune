@@ -51,11 +51,6 @@ repositories:
   > (tool (names ocamlfind ocp-indent))
   > EOF
   $ dune build
-  File "dune-workspace", line 2, characters 0-35:
-  2 | (tool (names ocamlfind ocp-indent))
-      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  Error: Field "name" is missing
-  [1]
 
 The same duplicate-name check applies across a "names" list too, and
 across a "names" list and a separate "name" stanza:
@@ -65,10 +60,12 @@ across a "names" list and a separate "name" stanza:
   > (tool (names ocamlfind ocp-indent ocamlfind))
   > EOF
   $ dune build
-  File "dune-workspace", line 2, characters 0-45:
+  File "dune-workspace", line 2, characters 34-43:
   2 | (tool (names ocamlfind ocp-indent ocamlfind))
-      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  Error: Field "name" is missing
+                                        ^^^^^^^^^
+  Error: Tool "ocamlfind" is defined multiple times:
+  - dune-workspace:2
+  - dune-workspace:2
   [1]
 
   $ cat > dune-workspace <<EOF
@@ -77,8 +74,10 @@ across a "names" list and a separate "name" stanza:
   > (tool (name ocamlfind))
   > EOF
   $ dune build
-  File "dune-workspace", line 2, characters 0-35:
-  2 | (tool (names ocamlfind ocp-indent))
-      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  Error: Field "name" is missing
+  File "dune-workspace", line 3, characters 0-23:
+  3 | (tool (name ocamlfind))
+      ^^^^^^^^^^^^^^^^^^^^^^^
+  Error: Tool "ocamlfind" is defined multiple times:
+  - dune-workspace:2
+  - dune-workspace:3
   [1]
