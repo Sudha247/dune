@@ -43,4 +43,5 @@ The unselected binary is no longer resolvable, even though the
 package installs it:
 
   $ dune exec beta
-  beta
+  Error: Program 'beta' not found!
+  [1]

@@ -56,8 +56,7 @@ conflict: the remaining tool's "clash" is unambiguous.
 excluded by its "binaries" selection:
 
   $ dune exec clash
-  Error: Binary "clash" is provided by several tools: toola, toolb.
-  [1]
+  clash from toola
 
 toolb's selected binary is still reachable by name:
 

@@ -39,8 +39,12 @@ not the package itself), but resolving any of its binaries reports the
 declared-but-not-provided binary:
 
   $ dune exec alpha
-  alpha
+  Error: Tool "foo" does not provide a binary named "nope", declared in its
+  (binaries ...) field.
+  Hint: The tool provides the following binaries: alpha
+  [1]
   $ dune exec foo
-  Error: Tool "foo" does not provide a binary named "foo".
+  Error: Tool "foo" does not provide a binary named "nope", declared in its
+  (binaries ...) field.
   Hint: The tool provides the following binaries: alpha
   [1]
