@@ -42,3 +42,43 @@ Declaring the same tool twice is an error:
   - dune-workspace:2
   - dune-workspace:3
   [1]
+
+A tool stanza declaring several tools that share the same
+repositories:
+
+  $ cat > dune-workspace <<EOF
+  > (lang dune 3.25)
+  > (tool (names ocamlfind ocp-indent))
+  > EOF
+  $ dune build
+  File "dune-workspace", line 2, characters 0-35:
+  2 | (tool (names ocamlfind ocp-indent))
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  Error: Field "name" is missing
+  [1]
+
+The same duplicate-name check applies across a "names" list too, and
+across a "names" list and a separate "name" stanza:
+
+  $ cat > dune-workspace <<EOF
+  > (lang dune 3.25)
+  > (tool (names ocamlfind ocp-indent ocamlfind))
+  > EOF
+  $ dune build
+  File "dune-workspace", line 2, characters 0-45:
+  2 | (tool (names ocamlfind ocp-indent ocamlfind))
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  Error: Field "name" is missing
+  [1]
+
+  $ cat > dune-workspace <<EOF
+  > (lang dune 3.25)
+  > (tool (names ocamlfind ocp-indent))
+  > (tool (name ocamlfind))
+  > EOF
+  $ dune build
+  File "dune-workspace", line 2, characters 0-35:
+  2 | (tool (names ocamlfind ocp-indent))
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  Error: Field "name" is missing
+  [1]
