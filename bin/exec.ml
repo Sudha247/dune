@@ -143,18 +143,20 @@ let build_prog ~no_rebuild ~prog p =
     p
 ;;
 
+let binaries_hint binaries =
+  match Filename.Map.keys binaries with
+  | [] -> Pp.textf "The tool installs no binaries."
+  | binaries ->
+    Pp.textf
+      "The tool provides the following binaries: %s"
+      (String.concat ~sep:", " (List.map binaries ~f:Filename.to_string))
+;;
+
 let no_binary_named_after_tool name ~binaries =
   let name = Package.Name.to_string name in
   User_error.raise
     [ Pp.textf "Tool %S does not provide a binary named %S." name name ]
-    ~hints:
-      [ (match Filename.Map.keys binaries with
-         | [] -> Pp.textf "The tool installs no binaries."
-         | binaries ->
-           Pp.textf
-             "The tool provides the following binaries: %s"
-             (String.concat ~sep:", " (List.map binaries ~f:Filename.to_string)))
-      ]
+    ~hints:[ binaries_hint binaries ]
 ;;
 
 let no_declared_binary_not_provided name ~binary ~binaries =
@@ -166,14 +168,7 @@ let no_declared_binary_not_provided name ~binary ~binaries =
         name
         binary
     ]
-    ~hints:
-      [ (match Filename.Map.keys binaries with
-         | [] -> Pp.textf "The tool installs no binaries."
-         | binaries ->
-           Pp.textf
-             "The tool provides the following binaries: %s"
-             (String.concat ~sep:", " (List.map binaries ~f:Filename.to_string)))
-      ]
+    ~hints:[ binaries_hint binaries ]
 ;;
 
 (* Raise if a name declared in the tool's (binaries ...) field isn't
@@ -200,22 +195,30 @@ let filter_declared_binaries (tool : Workspace.Tool.t) binaries =
 
 (* The binaries provided by a tool are only known once the tool is
    built: they are read from its install cookie. *)
+let resolve_tool_binaries ~no_rebuild ~if_not_built (tool : Workspace.Tool.t) =
+  let open Memo.O in
+  let+ binaries =
+    if no_rebuild
+    then (
+      match Dune_rules.Pkg_rules.tool_binaries_if_built tool.name with
+      | Some binaries -> Memo.return binaries
+      | None -> if_not_built ())
+    else Dune_rules.Pkg_rules.tool_binaries tool.name
+  in
+  check_declared_binaries_provided tool binaries;
+  filter_declared_binaries tool binaries
+;;
+
 let tool_binaries ~no_rebuild ~prog (tool : Workspace.Tool.t) =
   let open Memo.O in
   Dune_rules.Pkg_tool.is_locked tool.name
   >>= function
   | false -> Dune_rules.Pkg_tool.raise_not_locked tool.name
   | true ->
-    let+ binaries =
-      if no_rebuild
-      then (
-        match Dune_rules.Pkg_rules.tool_binaries_if_built tool.name with
-        | Some binaries -> Memo.return binaries
-        | None -> program_not_built_yet prog)
-      else Dune_rules.Pkg_rules.tool_binaries tool.name
-    in
-    check_declared_binaries_provided tool binaries;
-    filter_declared_binaries tool binaries
+    resolve_tool_binaries
+      ~no_rebuild
+      ~if_not_built:(fun () -> program_not_built_yet prog)
+      tool
 ;;
 
 (* [prog] does not name a tool: search the binaries of every declared
@@ -231,19 +234,11 @@ let search_tool_binaries ~no_rebuild ~prog (tools : Workspace.Tool.t list) =
       | false -> Memo.return None
       | true ->
         let+ binaries =
-          if no_rebuild
-          then (
-            match Dune_rules.Pkg_rules.tool_binaries_if_built tool.name with
-            | Some binaries ->
-              check_declared_binaries_provided tool binaries;
-              Memo.return binaries
-            | None -> Memo.return Filename.Map.empty)
-          else
-            let+ binaries = Dune_rules.Pkg_rules.tool_binaries tool.name in
-            check_declared_binaries_provided tool binaries;
-            binaries
+          resolve_tool_binaries
+            ~no_rebuild
+            ~if_not_built:(fun () -> Memo.return Filename.Map.empty)
+            tool
         in
-        let binaries = filter_declared_binaries tool binaries in
         Filename.Map.find binaries (Filename.of_string_exn prog)
         |> Option.map ~f:(fun path -> tool.name, path))
     >>| List.filter_opt
