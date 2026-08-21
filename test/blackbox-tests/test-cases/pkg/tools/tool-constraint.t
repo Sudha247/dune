@@ -9,7 +9,8 @@ Version constraints on a tool's declared name.
   > (lang dune 3.25)
   > EOF
 
-A version constraint on the singular "name" field is not supported yet:
+A version constraint on the singular "name" field pins the tool to that
+version, even though a newer one is available:
 
   $ cat > dune-workspace <<EOF
   > (lang dune 3.25)
@@ -21,14 +22,14 @@ A version constraint on the singular "name" field is not supported yet:
   >  (url "file://$(pwd)/mock-opam-repository"))
   > EOF
   $ dune tools add foo
-  File "dune-workspace", line 3, characters 7-22:
-  3 |  (name (foo (= 1.0.0)))
-             ^^^^^^^^^^^^^^^
-  Error: Atom or quoted string expected
-  [1]
+  Solution for _build/.tools.lock/foo
+  
+  Dependencies common to all supported platforms:
+  - foo.1.0.0
 
-A version constraint combined with (binaries ...) inside a "names" entry
-is not supported yet:
+A version constraint and (binaries ...) can be combined on one "names"
+entry, in either order; the version constraint applies only to that
+entry's own name:
 
   $ mkpkg baz 1.0.0 <<EOF
   > EOF
@@ -46,14 +47,53 @@ is not supported yet:
   >  (url "file://$(pwd)/mock-opam-repository"))
   > EOF
   $ dune tools add baz
-  File "dune-workspace", line 3, characters 29-30:
-  3 |  (names (baz (binaries baz) (= 1.0.0)) bar)
-                                   ^
-  Error: Unknown field "="
+  Solution for _build/.tools.lock/baz
+  
+  Dependencies common to all supported platforms:
+  - baz.1.0.0
+
+The same, with the constraint written before (binaries ...):
+
+  $ mkpkg qux 1.0.0 <<EOF
+  > EOF
+  $ mkpkg qux 2.0.0 <<EOF
+  > EOF
+  $ cat > dune-workspace <<EOF
+  > (lang dune 3.25)
+  > (tool
+  >  (names (qux (= 1.0.0) (binaries qux)) bar)
+  >  (repositories mock))
+  > (repository
+  >  (name mock)
+  >  (url "file://$(pwd)/mock-opam-repository"))
+  > EOF
+  $ dune tools add qux
+  Solution for _build/.tools.lock/qux
+  
+  Dependencies common to all supported platforms:
+  - qux.1.0.0
+
+A version constraint cannot be specified twice on the same entry:
+
+  $ cat > dune-workspace <<EOF
+  > (lang dune 3.25)
+  > (tool
+  >  (names (baz (= 1.0.0) (= 2.0.0)) bar)
+  >  (repositories mock))
+  > (repository
+  >  (name mock)
+  >  (url "file://$(pwd)/mock-opam-repository"))
+  > EOF
+  $ dune tools add baz
+  File "dune-workspace", line 3, characters 23-32:
+  3 |  (names (baz (= 1.0.0) (= 2.0.0)) bar)
+                             ^^^^^^^^^
+  Error: A version constraint cannot be specified twice; combine multiple
+  constraints with (and ...).
   [1]
 
-A filter atom is not a valid version constraint; today it also just fails
-to parse rather than getting a dedicated error:
+A filter atom is not a valid version constraint, since a tool's own name
+is unconditionally solved:
 
   $ cat > dune-workspace <<EOF
   > (lang dune 3.25)
@@ -65,8 +105,10 @@ to parse rather than getting a dedicated error:
   >  (url "file://$(pwd)/mock-opam-repository"))
   > EOF
   $ dune tools add foo
-  File "dune-workspace", line 3, characters 7-23:
+  File "dune-workspace", line 3, characters 12-22:
   3 |  (name (foo :with-test))
-             ^^^^^^^^^^^^^^^^
-  Error: Atom or quoted string expected
+                  ^^^^^^^^^^
+  Error: Filters such as ":with-test" are not allowed in a tool's version
+  constraint. Only version-relational operators (=, <, >, <>, >=, <=), combined
+  with and/or/not, are allowed.
   [1]

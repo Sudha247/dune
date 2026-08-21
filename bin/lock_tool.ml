@@ -3,8 +3,8 @@ open Import
 (* The solver satisfies dependencies for local packages, but tools are
    not local packages. As a workaround, create an empty local package
    which depends on the tool package. *)
-let make_local_package_wrapping_tool name : Dune_pkg.Local_package.t =
-  let dependency = { Dune_lang.Package_dependency.name; constraint_ = None } in
+let make_local_package_wrapping_tool ~constraint_ name : Dune_pkg.Local_package.t =
+  let dependency = { Dune_lang.Package_dependency.name; constraint_ } in
   let local_package_name =
     Package_name.of_string (Package_name.to_string name ^ "_tool_wrapper")
   in
@@ -27,8 +27,19 @@ let solve name =
     |> Memo.of_reproducible_fiber
     >>| Option.some
   and* workspace = Workspace.workspace () in
+  let constraint_ =
+    match
+      List.find workspace.tools ~f:(fun (tool : Workspace.Tool.t) ->
+        Package.Name.equal tool.name name)
+    with
+    | Some tool -> tool.constraint_
+    | None ->
+      Code_error.raise
+        "Lock_tool.solve: tool not declared"
+        [ "name", Package.Name.to_dyn name ]
+  in
   let lock_dir = Dune_pkg.Tool.external_lock_dir name |> Path.external_ in
-  let local_pkg = make_local_package_wrapping_tool name in
+  let local_pkg = make_local_package_wrapping_tool ~constraint_ name in
   let local_packages = Package_name.Map.singleton local_pkg.name local_pkg in
   let portable_lock_dir =
     match Config.get Dune_rules.Compile_time.portable_lock_dir with

@@ -791,6 +791,7 @@ module Tool = struct
   type t =
     { loc : Loc.t
     ; name : Package.Name.t
+    ; constraint_ : Dune_lang.Package_constraint.t option
     ; binaries : string list option
     ; repositories : (Loc.t * Dune_pkg.Pkg_workspace.Repository.Name.t) list
     }
@@ -800,6 +801,10 @@ module Tool = struct
       "tool"
       [ Repr.field "loc" Loc.repr ~get:(fun t -> t.loc)
       ; Repr.field "name" (Repr.abstract Package.Name.to_dyn) ~get:(fun t -> t.name)
+      ; Repr.field
+          "constraint_"
+          (Repr.option (Repr.abstract Dune_lang.Package_constraint.to_dyn))
+          ~get:(fun t -> t.constraint_)
       ; Repr.field
           "binaries"
           (Repr.option (Repr.list Repr.string))
@@ -813,13 +818,14 @@ module Tool = struct
 
   let to_dyn = Repr.to_dyn repr
 
-  let hash { loc; name; binaries; repositories } =
-    Poly.hash (loc, name, binaries, repositories)
+  let hash { loc; name; constraint_; binaries; repositories } =
+    Poly.hash (loc, name, constraint_, binaries, repositories)
   ;;
 
-  let equal { loc; name; binaries; repositories } t =
+  let equal { loc; name; constraint_; binaries; repositories } t =
     Loc.equal loc t.loc
     && Package.Name.equal name t.name
+    && Option.equal Dune_lang.Package_constraint.equal constraint_ t.constraint_
     && Option.equal (List.equal String.equal) binaries t.binaries
     && List.equal
          (Tuple.T2.equal Loc.equal Dune_pkg.Pkg_workspace.Repository.Name.equal)
@@ -827,13 +833,34 @@ module Tool = struct
          t.repositories
   ;;
 
+  (* A tool's own name is unconditionally solved, so a filter atom such as
+     [:with-test] has no coherent meaning in its version constraint; only
+     version-relational operators, combined with and/or/not, are allowed. *)
+  let rec reject_filter_constraint ~loc (t : Dune_lang.Package_constraint.t) =
+    let open Dune_lang.Package_constraint in
+    match t with
+    | Uop _ | Bop _ -> ()
+    | And ts | Or ts -> List.iter ts ~f:(reject_filter_constraint ~loc)
+    | Not t -> reject_filter_constraint ~loc t
+    | Bvar _ ->
+      User_error.raise
+        ~loc
+        [ Pp.text
+            "Filters such as \":with-test\" are not allowed in a tool's version \
+             constraint. Only version-relational operators (=, <, >, <>, >=, <=), \
+             combined with and/or/not, are allowed."
+        ]
+  ;;
+
   (* One entry of a [names] field: either a bare tool name, or a
-     parenthesized [(name (binaries (bin...)))], mirroring the
-     short/long-form idiom [Package_dependency.decode] uses for
-     [depends]. *)
+     parenthesized [(name clause...)], where each clause is either
+     [(binaries bin...)] or a bare version constraint such as [(= 1.0.0)],
+     in either order. Mirrors the short/long-form idiom
+     [Package_dependency.decode] uses for [depends]. *)
   type decl =
     { loc : Loc.t
     ; name : Package.Name.t
+    ; constraint_ : Dune_lang.Package_constraint.t option
     ; binaries : string list option
     }
 
@@ -844,19 +871,55 @@ module Tool = struct
     else binaries
   ;;
 
+  (* Entries of a "names" long form are a mix of a named [(binaries ...)]
+     clause and a bare version-constraint clause (e.g. [(= 1.0.0)]), in
+     either order. [fields] can't dispatch the latter (it has no
+     registrable field name), so each clause is decoded directly: try
+     [binaries] first, otherwise fall back to a bare [Package_constraint.t]. *)
+  type clause =
+    | Binaries of Loc.t * string list
+    | Constraint of Loc.t * Dune_lang.Package_constraint.t
+
+  let clause =
+    sum [ ("binaries", located binaries_field >>| fun (loc, b) -> Binaries (loc, b)) ]
+    <|> (located Dune_lang.Package_constraint.decode
+         >>| fun (loc, c) -> Constraint (loc, c))
+  ;;
+
+  let collect_clauses clauses =
+    List.fold_left clauses ~init:(None, None) ~f:(fun (binaries, constraint_) clause ->
+      match clause with
+      | Binaries (loc, b) ->
+        if Option.is_some binaries
+        then User_error.raise ~loc [ Pp.text "\"binaries\" cannot be specified twice." ];
+        Some b, constraint_
+      | Constraint (loc, c) ->
+        if Option.is_some constraint_
+        then
+          User_error.raise
+            ~loc
+            [ Pp.text
+                "A version constraint cannot be specified twice; combine multiple \
+                 constraints with (and ...)."
+            ];
+        reject_filter_constraint ~loc c;
+        binaries, Some c)
+  ;;
+
   let tool_dep =
     let long_form =
       let+ loc = loc
       and+ name = Package.Name.decode_opam_compatible
-      and+ binaries = fields (field_o "binaries" binaries_field) in
-      { loc; name; binaries }
+      and+ clauses = repeat clause in
+      let binaries, constraint_ = collect_clauses clauses in
+      { loc; name; constraint_; binaries }
     in
     peek_exn
     >>= function
     | List _ -> enter long_form
     | _ ->
       let+ loc, name = located Package.Name.decode_opam_compatible in
-      { loc; name; binaries = None }
+      { loc; name; constraint_ = None; binaries = None }
   ;;
 
   let decode =
@@ -864,7 +927,18 @@ module Tool = struct
       (let+ loc = loc
        and+ chosen =
          fields_mutually_exclusive
-           [ ("name", Package.Name.decode_opam_compatible >>| fun name -> `Name name)
+           [ ( "name"
+             , peek_exn
+               >>= function
+               | List _ ->
+                 enter
+                   (let+ name = Package.Name.decode_opam_compatible
+                    and+ loc, constraint_ = located Dune_lang.Package_constraint.decode in
+                    reject_filter_constraint ~loc constraint_;
+                    `Name (name, Some constraint_))
+               | _ ->
+                 let+ name = Package.Name.decode_opam_compatible in
+                 `Name (name, None) )
            ; ( "names"
              , let+ loc, names = located (repeat tool_dep) in
                if List.is_empty names
@@ -885,10 +959,11 @@ module Tool = struct
                "\"binaries\" cannot be used together with \"names\"; put a per-name \
                 (binaries ...) inside each entry of \"names\" instead."
            ]
-       | `Name name, binaries -> [ { loc; name; binaries; repositories } ]
+       | `Name (name, constraint_), binaries ->
+         [ { loc; name; constraint_; binaries; repositories } ]
        | `Names names, None ->
-         List.map names ~f:(fun { loc; name; binaries } ->
-           { loc; name; binaries; repositories }))
+         List.map names ~f:(fun { loc; name; constraint_; binaries } ->
+           { loc; name; constraint_; binaries; repositories }))
   ;;
 end
 

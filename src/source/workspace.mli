@@ -33,6 +33,7 @@ module Tool : sig
   type t =
     { loc : Loc.t
     ; name : Package.Name.t
+    ; constraint_ : Dune_lang.Package_constraint.t option
     ; binaries : string list option
     ; repositories : (Loc.t * Dune_pkg.Pkg_workspace.Repository.Name.t) list
     }
