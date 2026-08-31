@@ -1,7 +1,8 @@
-Building a tool whose package has dependencies. Tools are
-self-contained: their dependencies are built inside the tool's own
-install directory, independently of the project's dependencies. In
-particular the project here does not use package management at all.
+Building a tool whose package has dependencies. Tools are solved
+independently of the project's dependencies, and their dependencies are
+built in a pool shared across tools (keyed by package digest) rather than
+in the project's own package pool. In particular the project here does
+not use package management at all.
 
   $ mkpkg bar 0.0.1 <<EOF
   > EOF
@@ -43,10 +44,10 @@ Build and run the tool:
   $ ./_build/_private/default/.tools/foo/target/bin/foo
   hello from foo
 
-The tool's dependency was built in the tool's own dependency
-directory rather than the shared project package pool:
+The tool's dependency was built in the tools' shared dependency pool
+rather than the project's own package pool:
 
-  $ ls _build/_private/default/.tools/.deps/foo | sed 's/\..*//'
+  $ ls _build/_private/default/.tools/.deps | sed 's/\..*//'
   bar
   $ ls _build/_private/default/.pkg
   ls: cannot access '_build/_private/default/.pkg': No such file or directory

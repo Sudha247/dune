@@ -17,16 +17,17 @@ let universe_install_path name =
   Path.Build.relative (Lazy.force install_path_base) (Package.Name.to_string name)
 ;;
 
-(* The dependencies of a tool live next to the tool universes rather
-   than inside them: expanding a tool's build command requires its
+(* A tool's dependencies live next to the tool universes rather than
+   inside them: expanding a tool's build command requires its
    dependencies to be built, so rules for the dependencies cannot live
    below the tool's own directory. The leading dot avoids clashing with
-   tool package names. *)
-let deps_install_path_base name =
-  Path.Build.L.relative
-    (Lazy.force install_path_base)
-    [ ".deps"; Package.Name.to_string name ]
-;;
+   tool package names.
+
+   This is keyed only by package digest, not by tool name: a dependency
+   with a given digest is the same build regardless of which tool depends
+   on it, so tools that depend on the identical package share its build
+   instead of each rebuilding it. *)
+let deps_install_path_base () = Path.Build.relative (Lazy.force install_path_base) ".deps"
 
 let build_lock_dir name =
   Path.Build.relative (Lazy.force lock_dir_base) (Package.Name.to_string name)

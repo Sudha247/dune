@@ -264,14 +264,14 @@ module Paths = struct
       | Dev_tool dev_tool -> Pkg_dev_tool.universe_install_path dev_tool
       | Tool name ->
         (* The tool package itself installs at the root of the tool's
-           universe; its dependencies are built per tool in sibling
-           digest-keyed directories, keeping tools self-contained. The
-           path components must match the patterns in [setup_rules]. *)
+           universe; its dependencies are built in a sibling,
+           digest-keyed pool shared by all tools. The path components
+           must match the patterns in [setup_rules]. *)
         if Package.Name.equal pkg_digest.name name
         then Pkg_tool.universe_install_path name
         else
           Path.Build.relative
-            (Pkg_tool.deps_install_path_base name)
+            (Pkg_tool.deps_install_path_base ())
             (Pkg_digest.to_string pkg_digest)
     in
     of_root pkg_digest.name ~root
@@ -2527,6 +2527,31 @@ let setup_package_rules db ~package_universe ~dir ~pkg_digest : Gen_rules.result
   Gen_rules.make ~directory_targets ~build_dir_only_sub_dirs rules
 ;;
 
+(* Find a locked tool whose lock dir contains an entry for the given
+   package digest. [pkg_digest] is computed from a package's full
+   lockfile content plus its dependencies' digests, so any tool whose
+   lock dir contains this exact digest has an identical package
+   definition; the first match is used without further cross-tool
+   verification. *)
+let find_tool_owning_digest pkg_digest =
+  let* workspace = Workspace.workspace () in
+  let+ owners =
+    Memo.parallel_map workspace.tools ~f:(fun (tool : Workspace.Tool.t) ->
+      Pkg_tool.is_locked tool.name
+      >>= function
+      | false -> Memo.return None
+      | true ->
+        let+ db, (_ : Pkg_digest.t) = DB.of_tool tool.name in
+        if Pkg_digest.Map.mem db.pkg_digest_table pkg_digest then Some tool.name else None)
+  in
+  match List.filter_opt owners with
+  | name :: _ -> name
+  | [] ->
+    Code_error.raise
+      "No locked tool's lock dir contains this package digest"
+      [ "pkg_digest", Pkg_digest.to_dyn pkg_digest ]
+;;
+
 let setup_rules ~components ~dir ctx =
   (* Note that the path components in the following patterns must
      correspond to the paths returned by [Paths.make]. The strings
@@ -2547,17 +2572,16 @@ let setup_rules ~components ~dir ctx =
         (Gen_rules.Build_only_sub_dirs.singleton ~dir Subdir_set.all)
       (Memo.return Rules.empty)
     |> Memo.return
-  | true, ([ ".tools"; ".deps" ] | [ ".tools"; ".deps"; _ ]) ->
+  | true, [ ".tools"; ".deps" ] ->
     Gen_rules.make
       ~build_dir_only_sub_dirs:
         (Gen_rules.Build_only_sub_dirs.singleton ~dir Subdir_set.all)
       (Memo.return Rules.empty)
     |> Memo.return
-  | true, [ ".tools"; ".deps"; tool_package_name; pkg_digest_string ] ->
-    let name = Package.Name.of_string tool_package_name in
-    let* () = Pkg_tool.check_declared name in
-    let* db, (_ : Pkg_digest.t) = DB.of_tool name in
+  | true, [ ".tools"; ".deps"; pkg_digest_string ] ->
     let pkg_digest = Pkg_digest.of_string pkg_digest_string in
+    let* name = find_tool_owning_digest pkg_digest in
+    let* db, (_ : Pkg_digest.t) = DB.of_tool name in
     setup_package_rules db ~package_universe:(Tool name) ~dir ~pkg_digest
   | true, [ ".tools"; tool_package_name ] ->
     let name = Package.Name.of_string tool_package_name in

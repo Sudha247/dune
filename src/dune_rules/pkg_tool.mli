@@ -10,9 +10,10 @@ val install_path_base_dir_name : Filename.t
     the given tool *)
 val universe_install_path : Package.Name.t -> Path.Build.t
 
-(** The directory containing the builds of the given tool's
-    dependencies, keyed by package digest *)
-val deps_install_path_base : Package.Name.t -> Path.Build.t
+(** The directory containing the builds of tools' dependencies, keyed by
+    package digest. Shared across all tools: a dependency with a given
+    digest is the same build regardless of which tool depends on it. *)
+val deps_install_path_base : unit -> Path.Build.t
 
 (** The lock dir location where the build system can create the lock
     directory for the given tool. It is populated by copy rules from
