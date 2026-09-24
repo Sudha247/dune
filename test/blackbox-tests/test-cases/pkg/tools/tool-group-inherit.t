@@ -96,7 +96,30 @@ shared_packages only exists under inherit, not under lock_dir:
   [1]
 
 The same tool may be declared once per context, and a group without inherit
-may coexist with groups that inherit:
+may coexist with groups that inherit. Each group still needs its own name,
+so all but one of them must be named explicitly:
+
+  $ cat > dune-workspace <<EOF
+  > (lang dune 3.25)
+  > (using unreleased 0.1)
+  > (context default)
+  > (context (default (name other)))
+  > (tool_group
+  >  (tools ocaml-lsp-server)
+  >  (inherit (context default)))
+  > (tool_group
+  >  (name lsp-other)
+  >  (tools ocaml-lsp-server)
+  >  (inherit (context other)))
+  > (tool_group
+  >  (name lsp-isolated)
+  >  (tools ocaml-lsp-server)
+  >  (lock_dir))
+  > EOF
+  $ dune build
+
+A group without a name is named after its tool, so two anonymous groups
+declaring the same tool collide even in different contexts:
 
   $ cat > dune-workspace <<EOF
   > (lang dune 3.25)
@@ -109,11 +132,18 @@ may coexist with groups that inherit:
   > (tool_group
   >  (tools ocaml-lsp-server)
   >  (inherit (context other)))
-  > (tool_group
-  >  (tools ocaml-lsp-server)
-  >  (lock_dir))
   > EOF
   $ dune build
+  File "dune-workspace", lines 8-10, characters 0-65:
+   8 | (tool_group
+   9 |  (tools ocaml-lsp-server)
+  10 |  (inherit (context other)))
+  Error: Tool group "ocaml-lsp-server" is declared multiple times:
+  - dune-workspace:5
+  - dune-workspace:8
+  Hint: A group without a (name ...) field is named after its tool. Give one of
+  these groups an explicit name.
+  [1]
 
 But not twice for the same context:
 
