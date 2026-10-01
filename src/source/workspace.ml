@@ -213,7 +213,7 @@ module Tool_group = struct
     ; shared_packages : (Loc.t * Package.Name.t) list option
     }
 
-  type source =
+  type lock_dir =
     | Lock_dir of Lock_dir.t
     | Inherit of inherit_
 
@@ -221,7 +221,7 @@ module Tool_group = struct
     { loc : Loc.t
     ; name : (Loc.t * string) option
     ; tools : (Loc.t * Dune_lang.Package_dependency.t) list
-    ; source : source
+    ; lock_dir : lock_dir
     }
 
   let inherit_repr =
@@ -247,9 +247,9 @@ module Tool_group = struct
           (Repr.list (Repr.abstract Dune_lang.Package_dependency.to_dyn))
           ~get:(fun t -> List.map t.tools ~f:snd)
       ; Repr.field
-          "source"
+          "lock_dir"
           (Repr.variant
-             "source"
+             "lock_dir"
              [ Repr.case "Lock_dir" Lock_dir.repr ~proj:(function
                  | Lock_dir lock_dir -> Some lock_dir
                  | Inherit _ -> None)
@@ -257,12 +257,12 @@ module Tool_group = struct
                  | Inherit inherit_ -> Some inherit_
                  | Lock_dir _ -> None)
              ])
-          ~get:(fun t -> t.source)
+          ~get:(fun t -> t.lock_dir)
       ]
   ;;
 
   let to_dyn = Repr.to_dyn repr
-  let hash { loc; name; tools; source } = Poly.hash (loc, name, tools, source)
+  let hash { loc; name; tools; lock_dir } = Poly.hash (loc, name, tools, lock_dir)
 
   let equal_inherit { context; shared_packages } t =
     Tuple.T2.equal Loc.equal Context_name.equal context t.context
@@ -272,7 +272,7 @@ module Tool_group = struct
          t.shared_packages
   ;;
 
-  let equal { loc; name; tools; source } t =
+  let equal { loc; name; tools; lock_dir } t =
     Loc.equal loc t.loc
     && Option.equal (Tuple.T2.equal Loc.equal String.equal) name t.name
     && List.equal
@@ -280,7 +280,7 @@ module Tool_group = struct
          tools
          t.tools
     &&
-    match source, t.source with
+    match lock_dir, t.lock_dir with
     | Lock_dir a, Lock_dir b -> Lock_dir.equal a b
     | Inherit a, Inherit b -> equal_inherit a b
     | _ -> false
@@ -300,7 +300,7 @@ module Tool_group = struct
              ~loc
              [ Pp.text "A tool group must declare at least one tool." ];
          tools
-       and+ source =
+       and+ lock_dir =
          fields_mutually_exclusive
            [ ( "lock_dir"
              , let+ lock_dir = Lock_dir.decode ~dir in
@@ -309,12 +309,27 @@ module Tool_group = struct
              , fields
                  (let+ context = field "context" (located Context_name.decode)
                   and+ shared_packages =
-                    field_o "shared_packages" (repeat (located Package.Name.decode))
+                    let+ loc, shared_packages =
+                      located
+                      @@ field_o "shared_packages" (repeat (located Package.Name.decode))
+                    in
+                    Option.map shared_packages ~f:(fun packages ->
+                      if List.is_empty packages
+                      then
+                        User_error.raise
+                          ~loc
+                          [ Pp.text "No packages were specified to share." ]
+                          ~hints:
+                            [ Pp.text
+                                "Name at least one package here, or remove the field to \
+                                 reuse the context's packages where possible."
+                            ];
+                      packages)
                   in
                   Inherit { context; shared_packages }) )
            ]
        in
-       { loc; name; tools; source })
+       { loc; name; tools; lock_dir })
   ;;
 end
 
@@ -1191,7 +1206,7 @@ let check_lock_dirs_no_dupes lock_dirs =
       ]
 ;;
 
-let check_no_duplicate_group_names (tool_groups : Tool_group.t list) =
+let check_no_duplicate_tool_group_names (tool_groups : Tool_group.t list) =
   match
     List.filter_map tool_groups ~f:(fun (group : Tool_group.t) -> group.name)
     |> String.Map.of_list_map ~f:(fun (loc, name) -> name, loc)
@@ -1205,9 +1220,10 @@ let check_no_duplicate_group_names (tool_groups : Tool_group.t list) =
       ]
 ;;
 
-(* Tools are looked up by name within a scope. Groups that inherit a context
-   are scoped to that context; all groups without [inherit] form a single
-   scope, since a tool must resolve to one isolated instance by name alone. *)
+(* The same tool may appear in several groups only if those groups
+   inherit different contexts. So a tool in a [lock_dir] group may not
+   appear in any other group, and two groups inheriting the same context
+   may not share a tool. *)
 let check_no_duplicate_tools (tool_groups : Tool_group.t list) =
   let check scope tools =
     match
@@ -1231,25 +1247,26 @@ let check_no_duplicate_tools (tool_groups : Tool_group.t list) =
         ]
         ~hints:
           [ Pp.text
-              "A tool may be declared once per inherited context, and once among groups \
-               that do not inherit a context."
+              "A tool declared in a lock_dir group may not be declared again. Otherwise \
+               a tool may be declared once per inherited context."
           ]
   in
   let inherited, isolated =
     List.partition_map tool_groups ~f:(fun (group : Tool_group.t) ->
-      match group.source with
+      match group.lock_dir with
       | Inherit { context = _, context; _ } -> Left (context, group.tools)
       | Lock_dir _ -> Right group.tools)
   in
-  check None (List.concat isolated);
+  let isolated = List.concat isolated in
+  check None isolated;
   Context_name.Map.of_list_multi inherited
   |> Context_name.Map.iteri ~f:(fun context tools ->
-    check (Some context) (List.concat tools))
+    check (Some context) (isolated @ List.concat tools))
 ;;
 
 let check_tool_groups_contexts contexts (tool_groups : Tool_group.t list) =
   List.iter tool_groups ~f:(fun (group : Tool_group.t) ->
-    match group.source with
+    match group.lock_dir with
     | Lock_dir _ -> ()
     | Inherit { context = loc, name; _ } ->
       (match
@@ -1401,7 +1418,7 @@ let step1 ~(lang : Lang.Instance.t) clflags =
            else None
        in
        check_lock_dirs_no_dupes lock_dirs;
-       check_no_duplicate_group_names tool_groups;
+       check_no_duplicate_tool_group_names tool_groups;
        check_no_duplicate_tools tool_groups;
        check_tool_groups_contexts contexts tool_groups;
        { merlin_context
