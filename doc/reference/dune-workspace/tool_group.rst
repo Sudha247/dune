@@ -3,16 +3,16 @@ tool_group
 
 .. warning::
 
-   This stanza is a work in progress. It is parsed and validated, but tools
-   declared with it are not yet locked, built, or runnable.
+   This stanza is unreleased and a work in progress. It is parsed and validated,
+   but tools declared with it are not yet locked, built, or runnable. It may
+   change without notice.
 
 Declares developer tools that are managed by Dune's package management but are
 not dependencies of the project, such as ``ocamlformat`` or
 ``ocaml-lsp-server``.
 
-The stanza is unreleased. To enable it, add ``(using unreleased 0.1)``
-:doc:`extension </reference/dune-project/using>` to your ``dune-workspace``
-file. It may change without notice.
+To enable the stanza, add ``(using unreleased 0.1)`` :doc:`extension
+</reference/dune-project/using>` to your ``dune-workspace`` file.
 
 .. describe:: (tool_group ...)
 
@@ -24,10 +24,11 @@ file. It may change without notice.
 
       The packages providing the tools, in the
       :token:`~pkg-dep:dep_specification` format used by ``depends``. At least
-      one is required. A package may be declared at most once per inherited
-      context, and at most once among groups that do not inherit a context.
+      one is required. A package declared in a group with ``lock_dir`` may
+      not be declared in any other group. Otherwise a package may be declared
+      at most once per inherited context.
 
-   Exactly one of ``lock_dir`` or ``inherit`` is required.
+   Exactly one of either ``lock_dir`` or ``inherit`` is required.
 
    .. describe:: (lock_dir ...)
 
@@ -36,7 +37,8 @@ file. It may change without notice.
 
    .. describe:: (inherit ...)
 
-      Build the tools on top of the packages of an existing context.
+      Build the tools as an extension of the package environment of an existing
+      context.
 
       .. describe:: (context <name>)
 
@@ -45,15 +47,18 @@ file. It may change without notice.
 
       .. describe:: (shared_packages <name> ...)
 
-         Optional. Reuse only these packages, and what they depend on, from
-         the inherited context. Defaults to all of them.
+         Optional. The tools must re-use these packages from the inherited
+         context, along with everything these packages depend on. At least one
+         package is required when the field is present. When the field is
+         omitted, Dune re-uses the context's packages where possible.
 
 Example:
 
 .. code:: dune
 
    (tool_group
-    (tools ocamlformat)
+    (name format)
+    (tools ocamlformat ocp-indent)
     (lock_dir))
 
    (tool_group

@@ -66,8 +66,8 @@ Declaring the same tool in two groups is an error:
   Error: Tool "ocamlformat" is declared multiple times:
   - dune-workspace:4
   - dune-workspace:7
-  Hint: A tool may be declared once per inherited context, and once among
-  groups that do not inherit a context.
+  Hint: A tool declared in a lock_dir group may not be declared again.
+  Otherwise a tool may be declared once per inherited context.
   [1]
 
 So is declaring it twice within one group:
@@ -86,8 +86,8 @@ So is declaring it twice within one group:
   Error: Tool "ocamlformat" is declared multiple times:
   - dune-workspace:4
   - dune-workspace:4
-  Hint: A tool may be declared once per inherited context, and once among
-  groups that do not inherit a context.
+  Hint: A tool declared in a lock_dir group may not be declared again.
+  Otherwise a tool may be declared once per inherited context.
   [1]
 
 Two groups may not share a name:

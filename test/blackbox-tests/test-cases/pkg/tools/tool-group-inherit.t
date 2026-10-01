@@ -24,6 +24,25 @@ A group inheriting from a named context and sharing only some packages:
   > EOF
   $ dune build
 
+An empty shared_packages field is rejected, since sharing nothing is what a
+lock_dir group does:
+
+  $ cat > dune-workspace <<EOF
+  > (lang dune 3.25)
+  > (using unreleased 0.1)
+  > (tool_group
+  >  (tools ocaml-lsp-server)
+  >  (inherit (context default) (shared_packages)))
+  > EOF
+  $ dune build
+  File "dune-workspace", line 5, characters 28-45:
+  5 |  (inherit (context default) (shared_packages)))
+                                  ^^^^^^^^^^^^^^^^^
+  Error: No packages were specified to share.
+  Hint: Name at least one package here, or remove the field to reuse the
+  context's packages where possible.
+  [1]
+
 The inherited context must exist:
 
   $ cat > dune-workspace <<EOF
@@ -95,8 +114,7 @@ shared_packages only exists under inherit, not under lock_dir:
   Error: Unknown field "shared_packages"
   [1]
 
-The same tool may be declared once per context, and a group without inherit
-may coexist with groups that inherit:
+The same tool may be declared once per context:
 
   $ cat > dune-workspace <<EOF
   > (lang dune 3.25)
@@ -109,13 +127,35 @@ may coexist with groups that inherit:
   > (tool_group
   >  (tools ocaml-lsp-server)
   >  (inherit (context other)))
-  > (tool_group
-  >  (tools ocaml-lsp-server)
-  >  (lock_dir))
   > EOF
   $ dune build
 
-But not twice for the same context:
+But not in both a group without inherit and a group that inherits, since the
+former is usable from every context:
+
+  $ cat > dune-workspace <<EOF
+  > (lang dune 3.25)
+  > (using unreleased 0.1)
+  > (tool_group
+  >  (tools ocaml-lsp-server)
+  >  (lock_dir))
+  > (tool_group
+  >  (tools ocaml-lsp-server)
+  >  (inherit (context default)))
+  > EOF
+  $ dune build
+  File "dune-workspace", line 7, characters 8-24:
+  7 |  (tools ocaml-lsp-server)
+              ^^^^^^^^^^^^^^^^
+  Error: Tool "ocaml-lsp-server" is declared multiple times for context
+  "default":
+  - dune-workspace:4
+  - dune-workspace:7
+  Hint: A tool declared in a lock_dir group may not be declared again.
+  Otherwise a tool may be declared once per inherited context.
+  [1]
+
+Nor twice for the same context:
 
   $ cat > dune-workspace <<EOF
   > (lang dune 3.25)
@@ -136,6 +176,6 @@ But not twice for the same context:
   "default":
   - dune-workspace:4
   - dune-workspace:8
-  Hint: A tool may be declared once per inherited context, and once among
-  groups that do not inherit a context.
+  Hint: A tool declared in a lock_dir group may not be declared again.
+  Otherwise a tool may be declared once per inherited context.
   [1]
