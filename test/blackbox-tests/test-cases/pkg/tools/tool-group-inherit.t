@@ -74,7 +74,8 @@ An opam context has no lock directory to inherit:
   File "dune-workspace", line 6, characters 19-22:
   6 |  (inherit (context foo)))
                          ^^^
-  Error: Context "foo" is an opam context and has no lock directory to inherit.
+  Error: Context "foo" is an opam context and inheriting from an opam context
+  is not supported yet.
   [1]
 
 inherit and lock_dir are mutually exclusive:

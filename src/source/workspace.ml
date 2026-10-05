@@ -1277,7 +1277,8 @@ let check_tool_groups_contexts contexts (tool_groups : Tool_group.t list) =
          User_error.raise
            ~loc
            [ Pp.textf
-               "Context %S is an opam context and has no lock directory to inherit."
+               "Context %S is an opam context and inheriting from an opam context is not \
+                supported yet."
                (Context_name.to_string name)
            ]
        | None ->
