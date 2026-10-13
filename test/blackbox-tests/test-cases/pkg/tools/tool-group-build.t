@@ -37,11 +37,10 @@ pool from the group's own lock directory.
 The group's lock dir is copied into the context:
 
   $ dune build _build/_private/default/.tool-locks/foo
-  Error: Don't know how to build _build/_private/default/.tool-locks/foo
-  [1]
   $ ls _build/_private/default/.tool-locks/foo
-  ls: cannot access '_build/_private/default/.tool-locks/foo': No such file or directory
-  [2]
+  bar.0.0.1.pkg
+  foo.0.0.1.pkg
+  lock.dune
 
 Run the tool. It is built on demand together with its dependency:
 
