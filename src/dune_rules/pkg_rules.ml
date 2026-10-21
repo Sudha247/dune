@@ -2742,3 +2742,60 @@ let pkg_digest_of_project_dependency ctx package_name =
   |> List.find ~f:(fun (pkg_digest : Pkg_digest.t) ->
     Package.Name.equal pkg_digest.name package_name)
 ;;
+
+module Tool_group_binary = struct
+  type t =
+    { group : Workspace.Tool_group.t
+    ; tool : Package.Name.t
+    ; name : Filename.t
+    ; path : Path.t
+    }
+end
+
+let tool_group_pkgs ctx (group : Workspace.Tool_group.t) =
+  let* db = DB.of_ctx ctx ~allow_sharing:true
+  and* lock_dir = Lock_dir.of_tool_group ctx group
+  and* platform = Lock_dir.Sys_vars.solver_env in
+  let universe = Package_universe.Tool_group (ctx, group) in
+  let entries =
+    DB.Pkg_table.entries_by_name_of_lock_dir
+      lock_dir
+      ~platform
+      ~system_provided:db.system_provided
+      ~universe
+  in
+  Memo.List.map group.tools ~f:(fun (loc, (dep : Dune_lang.Package_dependency.t)) ->
+    match Package.Name.Map.find entries dep.name with
+    | Some { DB.Pkg_table.pkg_digest; _ } ->
+      let+ pkg = Resolve.resolve db loc pkg_digest universe in
+      dep.name, pkg
+    | None ->
+      User_error.raise
+        ~loc
+        [ Pp.textf
+            "The lock directory of tool group %S does not contain a lockfile for tool \
+             %S. It may have been modified."
+            (Workspace.Tool_group.name group)
+            (Package.Name.to_string dep.name)
+        ])
+;;
+
+let tool_group_binaries ctx =
+  let* groups =
+    Lock_dir.tool_groups_of_context ctx >>| List.filter ~f:Lock_dir.tool_group_locked
+  in
+  Memo.List.concat_map groups ~f:(fun group ->
+    let* pkgs = tool_group_pkgs ctx group in
+    Memo.List.concat_map pkgs ~f:(fun (tool, (pkg : Pkg.t)) ->
+      let cookie = (Pkg_installed.of_paths pkg.paths).cookie in
+      let+ (cookie : Install_cookie.t), _ =
+        Action_builder.evaluate_and_collect_facts cookie
+      in
+      Section.Map.Multi.find cookie.files Bin
+      |> List.map ~f:(fun path ->
+        let name =
+          Filename.of_string_exn
+            (Bin.strip_exe (Path.basename path |> Filename.to_string))
+        in
+        { Tool_group_binary.group; tool; name; path })))
+;;
