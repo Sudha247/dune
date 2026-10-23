@@ -25,11 +25,13 @@ module Lock_dir : sig
 end
 
 module Tool_group : sig
-  (** A group that inherits from a context is solved on top of that context's
-      lock directory and is only usable from that context. [shared_packages]
-      names the context's packages (with their dependencies) that must be
-      reused; [None] means reuse where possible. The list is never empty:
-      an empty field is rejected when decoding. *)
+
+  (** [(inherit (context <name>))]: the group is solved on top of that context's
+          lock directory and reuses its packages where possible.
+          [shared_packages] forces the dependency closure of the listed packages
+          to be the same as the parent's versions. No packages mentioned in
+          [shared_packages] means the solver will try to match as many packages
+          from the parent as possible. *)
   type inherit_ =
     { context : Loc.t * Context_name.t
     ; shared_packages : (Loc.t * Package.Name.t) list option
@@ -182,11 +184,6 @@ val hash : t -> int
 val pkg_enabled : t -> bool
 
 val find_lock_dir : t -> Path.t -> Lock_dir.t option
-
-(** The source-tree spelling of a lock directory's path. Lock directories
-  written under [_build] get the fake spelling [_build/<dir>/<name>]. *)
-val source_path_of_lock_dir_path : Path.t -> Path.Source.t
-
 val add_repo : t -> Dune_pkg.Pkg_workspace.Repository.t -> t
 val default_repositories : Dune_pkg.Pkg_workspace.Repository.t list
 

@@ -57,13 +57,7 @@ val constraints_of_lockdir
   :  Workspace.Lock_dir.t option
   -> Dune_lang.Package_dependency.t list
 
-val constraints_of_workspace
-  :  Workspace.t
-  -> lock_dir_path:Path.t
-  -> Dune_lang.Package_dependency.t list
-
 val depopts_of_lockdir : Workspace.Lock_dir.t option -> Package_name.t list
-val depopts_of_workspace : Workspace.t -> lock_dir_path:Path.t -> Package_name.t list
 val find_local_packages : Dune_pkg.Local_package.t Package_name.Map.t Memo.t
 
 module Lock_dirs_arg : sig

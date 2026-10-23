@@ -81,21 +81,14 @@ let resolved_package_of_shared_pkg ~platform (pkg : Dune_pkg.Lock_dir.Pkg.t) =
 
 let lock name ~portable_lock_dir =
   let open Fiber.O in
-  let* ( workspace
-       , lock_dir_path
-       , lockdir
-       , local_packages
-       , provided_packages
-       , parent_packages )
-    =
+  let* workspace, local_packages, (request : Pkg.Lock.lock_dir_request) =
     Memo.run
       (let open Memo.O in
        let* workspace = Workspace.workspace () in
        let group = find_group workspace name in
-       let lock_dir_path =
-         Path.external_ (Dune_rules.Lock_dir.tool_external_lock_dir group)
-       in
+       let path = Path.external_ (Dune_rules.Lock_dir.tool_external_lock_dir group) in
        let root = local_package_of_group group in
+       let local_packages = Package_name.Map.singleton root.name root in
        match group.lock_dir with
        | Inherit { context = _, ctx; shared_packages } ->
          let* parent = Dune_rules.Lock_dir.get_exn ctx
@@ -109,7 +102,7 @@ let lock name ~portable_lock_dir =
                "inherited context has no lock dir path"
                [ "context", Context_name.to_dyn ctx ]
          in
-         let shared = Dune_pkg.Lock_dir.packages_on_platform parent ~platform in
+         let parent_packages = Dune_pkg.Lock_dir.packages_on_platform parent ~platform in
          (* Compute the compiler package + packages listed in shared_pkg as
          roots *)
          let hard_roots =
@@ -139,23 +132,29 @@ let lock name ~portable_lock_dir =
                     |> String.concat ~sep:", ")
                ]
          in
-         let local_packages = Package_name.Map.singleton root.name root in
          let provided_package =
-           Package_name.Map.filteri shared ~f:(fun name _ ->
+           Package_name.Map.filteri parent_packages ~f:(fun name _ ->
              Package_name.Set.mem hard name)
            |> Package_name.Map.map ~f:(resolved_package_of_shared_pkg ~platform)
          in
          let lock_dir = Workspace.find_lock_dir workspace parent_path in
          Memo.return
-           (workspace, lock_dir_path, lock_dir, local_packages, provided_package, shared)
-       | Lock_dir lockdir ->
+           ( workspace
+           , local_packages
+           , { Pkg.Lock.path
+             ; lock_dir
+             ; provided = provided_package
+             ; parent = parent_packages
+             } )
+       | Lock_dir lock_dir ->
          Memo.return
            ( workspace
-           , lock_dir_path
-           , Some lockdir
-           , Package_name.Map.singleton root.name root
-           , Package_name.Map.empty
-           , Package_name.Map.empty ))
+           , local_packages
+           , { Pkg.Lock.path
+             ; lock_dir = Some lock_dir
+             ; provided = Package_name.Map.empty
+             ; parent = Package_name.Map.empty
+             } ))
   in
   let* solver_env_from_current_system =
     Pkg.Pkg_common.poll_solver_env_from_current_system () >>| Option.some
@@ -166,13 +165,7 @@ let lock name ~portable_lock_dir =
     ~project_pins:Dune_pkg.Pin.DB.empty
     ~solver_env_from_current_system
     ~version_preference:None
-    ~lock_dirs:
-      [ { Pkg.Lock.path = lock_dir_path
-        ; lock_dir = lockdir
-        ; provided = provided_packages
-        ; parent = parent_packages
-        }
-      ]
+    ~lock_dirs:[ request ]
     ~print_perf_stats:false
     ~portable_lock_dir
 ;;

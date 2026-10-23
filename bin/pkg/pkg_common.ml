@@ -93,18 +93,10 @@ let constraints_of_lockdir (lockdir : Workspace.Lock_dir.t option) =
   | None -> []
 ;;
 
-let constraints_of_workspace (workspace : Workspace.t) ~lock_dir_path =
-  Workspace.find_lock_dir workspace lock_dir_path |> constraints_of_lockdir
-;;
-
 let depopts_of_lockdir (lockdir : Workspace.Lock_dir.t option) =
   match lockdir with
   | Some lockdir -> List.map ~f:snd lockdir.depopts
   | None -> []
-;;
-
-let depopts_of_workspace (workspace : Workspace.t) ~lock_dir_path =
-  Workspace.find_lock_dir workspace lock_dir_path |> depopts_of_lockdir
 ;;
 
 let repositories_of_lockdir
