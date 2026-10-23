@@ -87,19 +87,19 @@ let repositories_of_workspace (workspace : Workspace.t) =
   |> Dune_pkg.Pkg_workspace.Repository.Name.Map.of_list_exn
 ;;
 
-let constraints_of_lockdir (lockdir : Workspace.Lock_dir.t option) =
+let constraints_of_stanza (lockdir : Workspace.Lock_dir.t option) =
   match lockdir with
   | Some lockdir -> lockdir.constraints
   | None -> []
 ;;
 
-let depopts_of_lockdir (lockdir : Workspace.Lock_dir.t option) =
+let depopts_of_stanza (lockdir : Workspace.Lock_dir.t option) =
   match lockdir with
   | Some lockdir -> List.map ~f:snd lockdir.depopts
   | None -> []
 ;;
 
-let repositories_of_lockdir
+let repositories_of_stanza
       (workspace : Workspace.t)
       (lockdir : Workspace.Lock_dir.t option)
   =
@@ -113,17 +113,17 @@ let repositories_of_lockdir
 ;;
 
 let repositories_of_lock_dir workspace ~lock_dir_path =
-  Workspace.find_lock_dir workspace lock_dir_path |> repositories_of_lockdir workspace
+  Workspace.find_lock_dir workspace lock_dir_path |> repositories_of_stanza workspace
 ;;
 
-let unset_solver_vars_of_lockdir (lockdir : Workspace.Lock_dir.t option) =
+let unset_solver_vars_of_stanza (lockdir : Workspace.Lock_dir.t option) =
   match lockdir with
   | None -> None
   | Some lockdir -> lockdir.unset_solver_vars
 ;;
 
 let unset_solver_vars_of_workspace workspace ~lock_dir_path =
-  Workspace.find_lock_dir workspace lock_dir_path |> unset_solver_vars_of_lockdir
+  Workspace.find_lock_dir workspace lock_dir_path |> unset_solver_vars_of_stanza
 ;;
 
 let find_local_packages =

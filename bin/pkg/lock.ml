@@ -197,7 +197,7 @@ let solve_lock_dir
     solver_env
       ~solver_env_from_context
       ~solver_env_from_current_system
-      ~unset_solver_vars_from_context:(unset_solver_vars_of_lockdir lock_dir)
+      ~unset_solver_vars_from_context:(unset_solver_vars_of_stanza lock_dir)
   in
   let solve_for_platforms =
     match portable_lock_dir with
@@ -220,7 +220,7 @@ let solve_lock_dir
     := Some (Progress_indicator.Per_lockdir.State.Updating_repos repo_names);
     Dune_pkg.Opam_repo.resolve_repositories
       ~available_repos:repo_map
-      ~repositories:(repositories_of_lockdir workspace lock_dir)
+      ~repositories:(repositories_of_stanza workspace lock_dir)
   in
   let* pins = Pin.Project.resolve project_pins in
   let time_solve_start = Time.now () in
@@ -245,8 +245,8 @@ let solve_lock_dir
       ~parent_packages
       ~local_packages:
         (Package_name.Map.map local_packages ~f:Dune_pkg.Local_package.for_solver)
-      ~constraints:(constraints_of_lockdir lock_dir)
-      ~selected_depopts:(depopts_of_lockdir lock_dir)
+      ~constraints:(constraints_of_stanza lock_dir)
+      ~selected_depopts:(depopts_of_stanza lock_dir)
       ~portable_lock_dir
   in
   match result with
