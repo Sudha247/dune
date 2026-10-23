@@ -58,7 +58,7 @@ let user_lock_dir_path path =
   match (path : Path.t) with
   | In_source_tree _ -> path
   | In_build_dir _ -> path
-  | External _ -> Workspace.source_path_of_lock_dir_path path |> Path.source
+  | External e -> Dune_pkg.Pkg_workspace.external_lock_dir_to_source_dir e |> Path.source
 ;;
 
 let summary_message
@@ -305,14 +305,12 @@ let solve
      effects after performing validation so that if materializing any
      lockdir would fail then no side effect takes place. *)
   (let+ errors, solutions =
-     let progress_indicator =
-       List.map lock_dirs ~f:(fun { path; lock_dir; provided; parent } ->
-         Progress_indicator.Per_lockdir.create path, lock_dir, provided, parent)
+     let requests =
+       List.map lock_dirs ~f:(fun request ->
+         let indicator = Progress_indicator.Per_lockdir.create request.path in
+         request, indicator)
      in
-     let overlay =
-       Progress_indicator.add_overlay
-         (List.map progress_indicator ~f:(fun (i, _, _, _) -> i))
-     in
+     let overlay = Progress_indicator.add_overlay (List.map ~f:snd requests) in
      let+ result =
        Fiber.finalize
          ~finally:(fun () ->
@@ -320,8 +318,10 @@ let solve
            Fiber.return ())
          (fun () ->
             Fiber.parallel_map
-              progress_indicator
-              ~f:(fun ({ lockdir_path; state }, lock_dir, provided, parent) ->
+              requests
+              ~f:
+                (fun
+                  ({ path = _; lock_dir; provided; parent }, { lockdir_path; state }) ->
                 solve_lock_dir
                   workspace
                   ~local_packages
